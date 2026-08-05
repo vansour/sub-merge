@@ -67,7 +67,9 @@ cargo install dioxus-cli  # 可能较慢；或使用 dx 已装版本
 [package]
 name = "submerge-web"
 version = "0.1.0"
-edition.workspace = true
+# 独立于 workspace：web 是 WASM 构建目标（cdylib），不加入根 workspace members，
+# 避免 dx build 与 cargo build --workspace 冲突。用字面 edition 而非 workspace 继承。
+edition = "2024"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
