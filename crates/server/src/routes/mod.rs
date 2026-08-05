@@ -12,11 +12,16 @@ use axum::Router;
 
 pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::AppConfig, admin_token: String) -> Router {
     let state = AppState::new(pool, cfg, admin_token);
-    Router::new()
-        .route("/", get(|| async { "sub-merge is running" }))
+    let api = Router::new()
         .route("/api/subscribe", get(subscribe::subscribe_handler))
         .merge(sources::router())
         .merge(preview::router())
-        .merge(config::router())
-        .with_state(state)
+        .merge(config::router());
+
+    let app = api
+        .route("/", get(|| async { "sub-merge is running" }))
+        .fallback(crate::r#static::fallback)
+        .with_state(state);
+
+    app
 }

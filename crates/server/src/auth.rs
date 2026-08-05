@@ -16,7 +16,7 @@ pub async fn require_admin(State(state): State<AppState>, headers: HeaderMap) ->
     let Some(token) = auth_str.strip_prefix("Bearer ") else {
         return Err(ApiError::unauthorized("expected Bearer token"));
     };
-    if constant_eq(token, &state.admin_token) {
+    if constant_eq(token, &*state.admin_token.read().await) {
         Ok(())
     } else {
         Err(ApiError::unauthorized("invalid admin token"))

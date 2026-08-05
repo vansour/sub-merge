@@ -51,6 +51,7 @@ async fn rotate_config(
         Some("admin") => {
             let t = crate::db::gen_token();
             crate::db::set_setting(&state.pool, "admin_token", &t).await?;
+            state.rotate_admin(t.clone()).await;
             // 注意：轮换 admin token 后，旧 token 立即失效。本请求用旧 token 调用已通过校验。
         }
         Some(_) => return Err(ApiError::bad_request("rotate must be 'subscribe' or 'admin'")),

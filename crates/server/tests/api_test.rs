@@ -347,3 +347,109 @@ async fn config_get_and_rotate() {
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_ne!(v["subscribe_token"], sub);
 }
+
+#[tokio::test]
+async fn admin_token_rotation_takes_effect_live() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-rotate", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let auth = |token: &str, req: Request<Body>| {
+        let mut req = req;
+        req.headers_mut().insert("authorization", format!("Bearer {}", token).parse().unwrap());
+        req
+    };
+
+    // 轮换 admin token（用旧 token 调 PUT）
+    let resp = app.clone().oneshot(auth(&admin, Request::builder()
+        .method("PUT")
+        .uri("/api/admin/config")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"rotate": "admin"}).to_string()))
+        .unwrap()))
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let new_admin = v["admin_token"].as_str().unwrap().to_string();
+    assert_ne!(new_admin, admin);
+
+    // 旧 token 立即失效（内存锁已更新）
+    let resp = app.clone().oneshot(auth(&admin, Request::builder()
+        .uri("/api/admin/config").body(Body::empty()).unwrap()))
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // 新 token 生效
+    let resp = app.clone().oneshot(auth(&new_admin, Request::builder()
+        .uri("/api/admin/config").body(Body::empty()).unwrap()))
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn static_index_served_from_dist() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-static", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    // 创建一个假 web-dist：index.html + 一个静态资源
+    let dist = tmp.join("web-dist");
+    std::fs::create_dir_all(&dist).unwrap();
+    std::fs::write(dist.join("index.html"), "<html>sub-merge</html>").unwrap();
+    std::fs::write(dist.join("app.css"), "body{color:red}").unwrap();
+
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = AppConfig {
+        port: 0,
+        db_path: tmp.join("test.db"),
+        concurrency: 4,
+        timeout_secs: 5,
+        max_nodes: 100,
+        web_dist: dist.clone(),
+    };
+    let app = server::routes::build_router(pool, cfg.clone(), admin.clone()).await;
+
+    // 根路由仍返回健康检查文本（不经过 fallback）
+    let resp = app.clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&bytes[..], b"sub-merge is running");
+
+    // 静态资源从 dist 目录提供，带正确的 content-type
+    let resp = app.clone()
+        .oneshot(Request::builder().uri("/app.css").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&bytes[..], b"body{color:red}");
+    assert!(ct.starts_with("text/css"), "unexpected content-type: {ct}");
+
+    // SPA 回退：不存在的路径返回 index.html
+    let resp = app.clone()
+        .oneshot(Request::builder().uri("/some/spa/route").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&bytes[..], b"<html>sub-merge</html>");
+
+    // 路径穿越 → 403
+    let resp = app.clone()
+        .oneshot(Request::builder().uri("/../etc/passwd").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    // dist 目录不存在时 fallback 返回 404
+    let empty_cfg = AppConfig {
+        web_dist: tmp.join("no-such-dist"),
+        ..cfg
+    };
+    let app = server::routes::build_router(test_pool(&tmp).await, empty_cfg, admin).await;
+    let resp = app.oneshot(Request::builder().uri("/missing.js").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
