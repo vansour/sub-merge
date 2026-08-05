@@ -1,4 +1,5 @@
 use proxy_core::model::Protocol;
+use proxy_core::parser::parse_line;
 use proxy_core::protocols::http::{parse_http, serialize_http};
 use proxy_core::protocols::socks5::{parse_socks5, serialize_socks5};
 
@@ -50,6 +51,12 @@ fn http_roundtrip_with_auth() {
     assert!(out.starts_with("http://"));
     let n2 = parse_http(&out).unwrap();
     assert_eq!(n2.password, n.password);
+}
+
+#[test]
+fn http_example_host_parses() {
+    assert!(parse_line("http://example.com:8080#JP").is_ok());
+    assert_eq!(parse_line("http://example.com:8080#JP").unwrap().kind, Protocol::Http);
 }
 
 #[test]

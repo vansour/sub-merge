@@ -38,6 +38,19 @@ fn trojan_roundtrip() {
 }
 
 #[test]
+fn trojan_httpupgrade_roundtrip() {
+    let uri = "trojan://pass@1.2.3.4:443?security=tls&type=httpupgrade&path=%2Fup&host=example.com#KR-03";
+    let n = parse_trojan(uri).unwrap();
+    assert!(n.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some());
+    let out = serialize_trojan(&n).unwrap();
+    let n2 = parse_trojan(&out).unwrap();
+    assert!(
+        n2.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some(),
+        "httpupgrade transport lost in roundtrip: {out}"
+    );
+}
+
+#[test]
 fn trojan_invalid() {
     assert!(parse_trojan("trojan://").is_err());
 }

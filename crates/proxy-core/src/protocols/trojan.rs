@@ -112,7 +112,7 @@ pub fn serialize_trojan(node: &ProxyNode) -> Result<String, SerializeError> {
         }
         Some(t) if t.http_upgrade.is_some() => {
             let h = t.http_upgrade.as_ref().unwrap();
-            ("http", h.host.clone().unwrap_or_default(), h.path.clone())
+            ("httpupgrade", h.host.clone().unwrap_or_default(), h.path.clone())
         }
         _ => ("tcp", String::new(), String::new()),
     };

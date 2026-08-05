@@ -41,6 +41,19 @@ fn vless_roundtrip() {
 }
 
 #[test]
+fn vless_httpupgrade_roundtrip() {
+    let uri = "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443?encryption=none&security=tls&type=httpupgrade&path=%2Fup&host=cdn.example.com#JP-02";
+    let n = parse_vless(uri).unwrap();
+    assert!(n.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some());
+    let out = serialize_vless(&n).unwrap();
+    let n2 = parse_vless(&out).unwrap();
+    assert!(
+        n2.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some(),
+        "httpupgrade transport lost in roundtrip: {out}"
+    );
+}
+
+#[test]
 fn vless_invalid() {
     assert!(parse_vless("vless://").is_err());
     assert!(parse_vless("vless://bad@host").is_err());

@@ -4,7 +4,7 @@ use crate::model::{Protocol, ProxyNode};
 use crate::uri::{parse_host_port, percent_decode, split_authority};
 
 pub fn is_http(uri: &str) -> bool {
-    uri.starts_with("http://") && !uri.starts_with("http://example") // 防御误判（此处仅按前缀即可）
+    uri.starts_with("http://")
 }
 
 pub fn parse_http(uri: &str) -> Result<ProxyNode, ParseError> {
