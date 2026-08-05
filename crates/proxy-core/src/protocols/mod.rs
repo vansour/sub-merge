@@ -4,5 +4,6 @@ pub mod http;
 pub mod socks5;
 pub mod ss;
 pub mod ssr;
+pub mod trojan;
 pub mod vless;
 pub mod vmess;
