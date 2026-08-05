@@ -1,6 +1,7 @@
 // crates/server/web/src/components/config.rs
 // Task 5：配置页。拉取 /api/admin/config 展示订阅链接 + token，支持复制与轮换。
 use crate::api::request;
+use crate::components::login::write_token;
 use dioxus::prelude::*;
 use serde::Deserialize;
 use std::rc::Rc;
@@ -51,14 +52,27 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
     });
 
     let rotate = move |which: &'static str| {
-        let token = token.read().clone();
+        let current = token.read().clone();
         let body = serde_json::json!({ "rotate": which }).to_string();
         let mut cfg = cfg.clone();
         let mut error = error.clone();
+        // Signal 是 Copy：把 token signal 拷进闭包，rotating admin token 后同步会话。
+        let mut token = token;
         spawn(async move {
-            match request("PUT", "/api/admin/config", Some(body), token.as_deref()).await {
+            match request("PUT", "/api/admin/config", Some(body), current.as_deref()).await {
                 Ok(b) => match serde_json::from_str::<ConfigDto>(&b) {
-                    Ok(c) => cfg.set(Some(c)),
+                    Ok(c) => {
+                        // 服务端轮换 admin token 后，旧 token 立即失效（已实测 401）。
+                        // 同步更新本地会话（localStorage + token signal），
+                        // 否则当前登录态后续所有 API 调用都会 401，且不会自动回到登录页。
+                        if which == "admin" {
+                            write_token(&c.admin_token);
+                            token.set(Some(c.admin_token.clone()));
+                        }
+                        // 成功时清掉过期的错误提示。
+                        error.set(String::new());
+                        cfg.set(Some(c));
+                    }
                     Err(e) => error.set(format!("解析失败: {}", e)),
                 },
                 Err(e) => error.set(e),
