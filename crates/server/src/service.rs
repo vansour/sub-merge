@@ -5,6 +5,7 @@ use proxy_core::parser::parse_subscription_text;
 use sqlx::Row;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 #[derive(Debug, Clone)]
@@ -13,7 +14,8 @@ pub struct SourceError {
     pub reason: String,
 }
 
-/// 并发拉取全部 enabled 源，解析合并。返回 (节点, 错误源列表)。
+/// 并发拉取全部 enabled 源（受 cfg.concurrency 上限约束），解析合并。
+/// 返回 (节点, 错误源列表)。
 pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceError>) {
     let sources: Vec<(i64, String, String)> = sqlx::query("SELECT id, name, url FROM sources WHERE enabled = 1")
         .fetch_all(&state.pool)
@@ -26,17 +28,28 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
     let max_nodes = state.cfg.max_nodes;
     let client = Arc::new(state.http.clone());
     let timeout = Duration::from_secs(state.cfg.timeout_secs);
+    let cap = state.cfg.concurrency.max(1);
+    let semaphore = Arc::new(Semaphore::new(cap));
 
     let mut set = JoinSet::new();
     for (_, name, url) in sources {
+        // spawn 前获取信号量许可：同一时刻最多 cap 个源并发拉取。
+        let Ok(permit) = semaphore.clone().acquire_owned().await else {
+            continue; // 信号量被关闭，跳过该源
+        };
         let client = client.clone();
         set.spawn(async move {
+            let _permit = permit; // 任务期间持有许可
             match fetch_source(&client, &url, timeout).await {
                 Ok(text) => {
-                    let (nodes, _skipped) = parse_subscription_text(&text, max_nodes);
-                    (Some(name), nodes)
+                    let (nodes, skipped) = parse_subscription_text(&text, max_nodes);
+                    if nodes.is_empty() {
+                        (name, Err(format!("no nodes parsed ({} line(s) skipped)", skipped)))
+                    } else {
+                        (name, Ok(nodes))
+                    }
                 }
-                Err(_reason) => (Some(name), Vec::new()),
+                Err(reason) => (name, Err(reason)),
             }
         });
     }
@@ -44,13 +57,10 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
     let mut all_nodes = Vec::new();
     let mut errors = Vec::new();
     while let Some(res) = set.join_next().await {
-        let Ok((name, mut nodes)) = res else { continue };
-        if let Some(n) = name {
-            if nodes.is_empty() {
-                errors.push(SourceError { source_name: n, reason: "no nodes parsed or fetch failed".into() });
-            } else {
-                all_nodes.append(&mut nodes);
-            }
+        let Ok((name, result)) = res else { continue };
+        match result {
+            Ok(mut nodes) => all_nodes.append(&mut nodes),
+            Err(reason) => errors.push(SourceError { source_name: name, reason }),
         }
     }
     // 上限截断

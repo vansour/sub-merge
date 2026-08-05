@@ -6,6 +6,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn test_config(tmp: &std::path::Path) -> AppConfig {
     AppConfig {
@@ -119,4 +121,80 @@ async fn subscribe_wrong_format_returns_bad_request() {
             .body(Body::empty()).unwrap())
         .await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn fetch_and_merge_respects_concurrency_cap() {
+    // 最小 HTTP 源服务器：统计同一时刻的在途请求数，验证并发上限被遵守。
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
+    let served = Arc::new(AtomicUsize::new(0));
+    {
+        let active = active.clone();
+        let max_active = max_active.clone();
+        let served = served.clone();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            loop {
+                if served.load(Ordering::SeqCst) >= 6 {
+                    break;
+                }
+                let Ok((mut sock, _)) = listener.accept().await else { break };
+                let active = active.clone();
+                let max_active = max_active.clone();
+                let served = served.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let _ = sock.read(&mut buf).await;
+                    let cur = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_active.fetch_max(cur, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    served.fetch_add(1, Ordering::SeqCst);
+                    let body = b"ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#CONC\n";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = sock.write_all(head.as_bytes()).await;
+                    let _ = sock.write_all(body).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+    }
+
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-concurrency", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+
+    // 插入 6 个源，全部指向同一台并发计数服务器。
+    for i in 0..6 {
+        let url = format!("http://{}/s{}", addr, i);
+        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+            .bind(&url).bind(format!("src-{i}")).bind("now")
+            .execute(&pool).await.unwrap();
+    }
+
+    let cfg = AppConfig {
+        port: 0,
+        db_path: tmp.join("test.db"),
+        concurrency: 2,
+        timeout_secs: 5,
+        max_nodes: 100,
+        web_dist: tmp.join("empty-dist"),
+    };
+    let state = server::state::AppState::new(pool, cfg, admin);
+
+    let (nodes, errors) = server::service::fetch_and_merge(&state).await;
+
+    assert!(errors.is_empty(), "expected no source errors, got {errors:?}");
+    assert_eq!(nodes.len(), 6, "all 6 sources should be fetched and merged");
+    assert!(nodes.iter().all(|n| n.name == "CONC"));
+    assert_eq!(served.load(Ordering::SeqCst), 6, "server should have served all 6");
+    let max = max_active.load(Ordering::SeqCst);
+    assert!(max <= 2, "concurrency cap exceeded: {max} concurrent requests");
+    assert!(max >= 2, "expected batching under the cap, got max concurrent {max}");
 }
