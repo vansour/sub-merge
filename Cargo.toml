@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/proxy-core"]
+members = ["crates/proxy-core", "crates/server"]
 
 [workspace.package]
 edition = "2024"
