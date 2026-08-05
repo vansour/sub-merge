@@ -8,7 +8,7 @@ PATH := $(HOME)/.cargo/bin:$(PATH)
 # web 是独立 crate（不在 workspace members 内），只能由 dx build 构建，
 # 不能走 cargo build --workspace。
 build-web:
-	cd crates/server/web && dx build --web
+	cd crates/server/web && (test -e dist || ln -s target/dx/submerge-web/debug/web/public dist); dx build --web
 
 # 后端二进制（release）。
 build-server:
@@ -27,7 +27,7 @@ docker:
 	docker build -t sub-merge .
 
 # 端到端冒烟测试：构建前端 → 起 server（临时 DB）→ curl 验证 SPA/静态/API。
-smoke:
+smoke: build-web
 	bash scripts/smoke.sh
 
 clean:

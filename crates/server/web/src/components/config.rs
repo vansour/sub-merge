@@ -80,11 +80,12 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         });
     };
 
-    // base_url 取当前页面地址。去掉末尾 '/'，避免拼出 `host//api/subscribe`。
+    // base_url 取当前页面 origin（协议 + 主机 + 端口，不含路径）。
+    // 不能用 href()：页面 URL 带路径（如 /index.html）时会把路径拼进订阅链接，
+    // 得到 http://host/index.html/api/subscribe?...
     let base_url = web_sys::window()
-        .and_then(|w| w.location().href().ok())
+        .and_then(|w| w.location().origin().ok())
         .unwrap_or_default();
-    let base_url = base_url.trim_end_matches('/').to_string();
 
     // 订阅链接在 rsx 外预计算：
     //  - rsx 内嵌的 `format!` 含 `{}` 占位符会被 rsx 解析器误判为插值；
