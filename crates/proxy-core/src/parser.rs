@@ -120,7 +120,10 @@ fn clash_proxy_to_node(p: &serde_yaml::Value) -> Option<ProxyNode> {
         node.crypto = Some(crate::model::Crypto::from_str(c));
     }
     // TLS
-    let tls_on = p.get("tls").and_then(|v| v.as_bool()).unwrap_or(false)
+    // trojan 协议按 Clash 语义始终启用 TLS（协议本身要求 TLS 承载）。
+    let type_always_tls = ty == "trojan";
+    let tls_on = type_always_tls
+        || p.get("tls").and_then(|v| v.as_bool()).unwrap_or(false)
         || p.get("security").and_then(|v| v.as_str()).map(|s| s != "none").unwrap_or(false);
     if tls_on {
         node.tls = Some(crate::model::TlsSettings {

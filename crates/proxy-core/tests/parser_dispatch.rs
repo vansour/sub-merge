@@ -72,3 +72,24 @@ proxies:
     let ws = nodes[1].transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
     assert_eq!(ws.path, "/ws");
 }
+
+#[test]
+fn clash_yaml_trojan_sni_without_tls_field() {
+    // Clash trojan 条目通常只有顶层 sni，无显式 tls 字段。
+    let yaml = r#"
+proxies:
+  - name: "JP-01"
+    type: trojan
+    server: 1.2.3.4
+    port: 443
+    password: pass123
+    sni: example.com
+"#;
+    let nodes = parse_clash_yaml(yaml).unwrap();
+    assert_eq!(nodes.len(), 1);
+    let n = &nodes[0];
+    assert_eq!(n.kind, Protocol::Trojan);
+    let tls = n.tls.as_ref().expect("trojan should have TLS settings");
+    assert!(tls.enabled, "trojan requires TLS");
+    assert_eq!(tls.sni.as_deref(), Some("example.com"));
+}
