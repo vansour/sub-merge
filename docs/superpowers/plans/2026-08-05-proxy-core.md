@@ -14,7 +14,7 @@
 - workspace 根：`/root/github/sub-merge`，crate 路径：`crates/proxy-core`
 - `ProxyNode` 为唯一中间模型，定义在 `crates/proxy-core/src/model.rs`
 - 解析器签名统一：`pub fn parse(uri: &str) -> Result<ProxyNode, ParseError>`
-- 序列化签名统一：`pub fn serialize(node: &ProxyNode) -> String`
+- 序列化签名统一：`pub fn serialize(node: &ProxyNode) -> Result<String, SerializeError>`（各协议 `serialize_*` 返回 Result 以便错误可处理而非 panic）
 - 所有协议解析/序列化均为纯函数，无 IO、无 panics
 - 未知协议/非法输入返回 `Err(ParseError)`，不 panic
 - 每个协议 Task 以 TDD 完成：先写失败测试 → 实现 → 通过 → commit
