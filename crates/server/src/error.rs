@@ -1,4 +1,5 @@
 // crates/server/src/error.rs
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -47,5 +48,26 @@ impl From<sqlx::Error> for ApiError {
     fn from(e: sqlx::Error) -> Self {
         tracing::error!("db error: {e:?}");
         Self::internal(e.to_string())
+    }
+}
+
+// 提取器拒绝：让 Json/Path/Query 的默认 400/4xx 响应统一为 {error:{code,message}}。
+// 保留各自实际 status（如 MissingJsonContentType 为 415），message 取自 axum 的拒绝描述。
+
+impl From<JsonRejection> for ApiError {
+    fn from(rej: JsonRejection) -> Self {
+        Self { status: rej.status(), code: "invalid_json", message: rej.body_text() }
+    }
+}
+
+impl From<PathRejection> for ApiError {
+    fn from(rej: PathRejection) -> Self {
+        Self { status: rej.status(), code: "invalid_path", message: rej.body_text() }
+    }
+}
+
+impl From<QueryRejection> for ApiError {
+    fn from(rej: QueryRejection) -> Self {
+        Self { status: rej.status(), code: "invalid_query", message: rej.body_text() }
     }
 }

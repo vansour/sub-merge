@@ -2,6 +2,7 @@
 use crate::auth::require_admin;
 use crate::error::ApiError;
 use crate::state::AppState;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -40,9 +41,10 @@ async fn get_config(
 async fn rotate_config(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<RotateConfig>,
+    body: Result<Json<RotateConfig>, JsonRejection>,
 ) -> Result<Json<ConfigDto>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
+    let Json(body) = body.map_err(ApiError::from)?;
     match body.rotate.as_deref() {
         Some("subscribe") => {
             let t = crate::db::gen_token();

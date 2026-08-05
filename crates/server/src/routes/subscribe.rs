@@ -2,6 +2,7 @@
 use crate::error::ApiError;
 use crate::service;
 use crate::state::AppState;
+use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::response::Response;
 use proxy_core::serializer::{serialize_nodes, OutputFormat};
@@ -16,8 +17,9 @@ pub struct SubscribeQuery {
 
 pub async fn subscribe_handler(
     State(state): State<AppState>,
-    Query(q): Query<SubscribeQuery>,
+    q: Result<Query<SubscribeQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
+    let Query(q) = q.map_err(ApiError::from)?;
     // 校验订阅 token
     let stored = sqlx::query("SELECT value FROM settings WHERE key = 'subscribe_token'")
         .fetch_optional(&state.pool)

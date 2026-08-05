@@ -390,6 +390,58 @@ async fn admin_token_rotation_takes_effect_live() {
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
+async fn assert_error_json(resp: axum::response::Response, expected_code: &str) {
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "expected 400");
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|e| panic!("response body is not JSON: {e:?} -> {:?}", &bytes));
+    assert_eq!(v["error"]["code"], expected_code, "unexpected error code: {v}");
+    assert!(v["error"]["message"].is_string(), "missing error.message: {v}");
+    assert!(!v["error"]["message"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rejection_non_numeric_id_returns_unified_json() {
+    // 回归：PUT /api/admin/sources/abc 的非数字 {id} 应走统一错误格式
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-path", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let resp = app.clone().oneshot(Request::builder()
+        .method("PUT")
+        .uri("/api/admin/sources/abc")
+        .header("authorization", format!("Bearer {}", admin))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"enabled": false}).to_string()))
+        .unwrap())
+        .await.unwrap();
+    assert_error_json(resp, "invalid_path").await;
+}
+
+#[tokio::test]
+async fn rejection_malformed_json_returns_unified_json() {
+    // 回归：POST /api/admin/sources 的 malformed JSON body 应走统一错误格式
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-json", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let resp = app.clone().oneshot(Request::builder()
+        .method("POST")
+        .uri("/api/admin/sources")
+        .header("authorization", format!("Bearer {}", admin))
+        .header("content-type", "application/json")
+        .body(Body::from("{\"url\": \"\"")) // 语法错误的 JSON
+        .unwrap())
+        .await.unwrap();
+    assert_error_json(resp, "invalid_json").await;
+}
+
 #[tokio::test]
 async fn static_index_served_from_dist() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-static", std::process::id()));

@@ -15,8 +15,9 @@ async fn main() -> anyhow::Result<()> {
     let cfg = AppConfig::from_env();
     let pool = init_db(&cfg.db_path).await?;
     let (sub_token, admin_token) = ensure_tokens(&pool).await?;
-    tracing::info!("subscribe token: {}", sub_token);
-    tracing::info!("admin token: {}", admin_token);
+    // token 是机密，不应在 info 级别输出到日志。仅 debug 级别可见。
+    tracing::debug!("subscribe token: {}", sub_token);
+    tracing::debug!("admin token: {}", admin_token);
 
     let app = build_router(pool, cfg.clone(), admin_token).await;
 

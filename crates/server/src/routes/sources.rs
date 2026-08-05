@@ -2,6 +2,7 @@
 use crate::auth::require_admin;
 use crate::error::ApiError;
 use crate::state::AppState;
+use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
@@ -55,9 +56,10 @@ async fn list_sources(
 async fn create_source(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<CreateSource>,
+    body: Result<Json<CreateSource>, JsonRejection>,
 ) -> Result<(axum::http::StatusCode, Json<SourceDto>), ApiError> {
     require_admin(State(state.clone()), headers).await?;
+    let Json(body) = body.map_err(ApiError::from)?;
     if body.url.is_empty() || body.name.is_empty() {
         return Err(ApiError::bad_request("url and name required"));
     }
@@ -84,10 +86,12 @@ async fn create_source(
 async fn update_source(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path(id): Path<i64>,
-    Json(body): Json<UpdateSource>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<UpdateSource>, JsonRejection>,
 ) -> Result<Json<SourceDto>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
+    let Path(id) = id.map_err(ApiError::from)?;
+    let Json(body) = body.map_err(ApiError::from)?;
     // 先取现有
     let existing = sqlx::query_as::<_, SourceDto>(
         "SELECT id, url, name, enabled, created_at FROM sources WHERE id = ?",
@@ -116,9 +120,10 @@ async fn update_source(
 async fn delete_source(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path(id): Path<i64>,
+    id: Result<Path<i64>, PathRejection>,
 ) -> Result<axum::http::StatusCode, ApiError> {
     require_admin(State(state.clone()), headers).await?;
+    let Path(id) = id.map_err(ApiError::from)?;
     let res = sqlx::query("DELETE FROM sources WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
@@ -132,9 +137,10 @@ async fn delete_source(
 async fn refresh_source(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path(id): Path<i64>,
+    id: Result<Path<i64>, PathRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
+    let Path(id) = id.map_err(ApiError::from)?;
     // 实时拉取模式下，refresh 即对该源重新抓取并报告结果
     let source = sqlx::query_as::<_, SourceDto>(
         "SELECT id, url, name, enabled, created_at FROM sources WHERE id = ?",
