@@ -10,3 +10,4 @@ pub mod trojan;
 pub mod tuic;
 pub mod vless;
 pub mod vmess;
+pub mod wireguard;
