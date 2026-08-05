@@ -246,12 +246,12 @@ pub async fn ensure_tokens(pool: &SqlitePool) -> Result<(String, String)> {
 
 ```rust
 // crates/server/src/lib.rs
-pub mod auth;
+// Task 1 只声明本任务创建的模块：config/db/error/state/routes。
+// auth 由 Task 3 创建时加声明；service 由 Task 2 创建时加声明。
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod routes;
-pub mod service;
 pub mod state;
 ```
 
@@ -404,40 +404,17 @@ impl From<sqlx::Error> for ApiError {
 routes/mod.rs（骨架，路由后续 Task 填充）:
 ```rust
 // crates/server/src/routes/mod.rs
-use crate::error::ApiError;
+// Task 1 只建立最小 Router。subscribe/sources/preview/config 子模块
+// 由 Task 2-4 创建时在 lib.rs 和本文件补声明。
 use crate::state::AppState;
-use axum::extract::State;
-use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 
-pub mod config;
-pub mod preview;
-pub mod sources;
-pub mod subscribe;
-
 pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::AppConfig, admin_token: String) -> Router {
     let state = AppState::new(pool, cfg, admin_token);
-    let api = Router::new()
-        .route("/api/subscribe", get(subscribe::subscribe_handler))
-        .merge(sources::router())
-        .merge(preview::router())
-        .merge(config::router())
-        .with_state(state);
-
-    // 静态资源兜底
-    // Task 1 先以 404 占位 fallback；Task 5 替换为 crate::static::fallback
-    let app = api.fallback(crate::static::fallback_placeholder);
-
-    app.route("/", get(|| async { "sub-merge is running" }))
-}
-
-// Task 1 占位；Task 5 改为从 crate::static 使用真实实现
-pub async fn static_placeholder() -> axum::response::Response {
-    axum::response::Response::builder()
-        .status(axum::http::StatusCode::NOT_FOUND)
-        .body(axum::body::Body::from("not found"))
-        .unwrap()
+    Router::new()
+        .route("/", get(|| async { "sub-merge is running" }))
+        .with_state(state)
 }
 ```
 
@@ -1302,8 +1279,9 @@ git commit -m "feat(server): preview and config endpoints with token rotation"
 ### Task 5: admin token 即时轮换（共享可变 state）+ 静态资源托管 + main.rs 组装
 
 **Files:**
-- Modify: `crates/server/src/state.rs`（admin token 改 `Arc<Mutex<String>>` 或引入 `ArcSwap`）
+- Modify: `crates/server/src/state.rs`（admin token 改 `Arc<RwLock<String>>`）
 - Modify: `crates/server/src/routes/config.rs`（轮换后更新共享 state）
+- Modify: `crates/server/src/lib.rs`（加 `pub mod static;`）
 - Create: `crates/server/src/static.rs`
 - Create: `crates/server/src/main.rs`
 - Test: `crates/server/tests/api_test.rs` 追加静态/根路径测试
@@ -1473,13 +1451,13 @@ pub async fn build_router(pool: SqlitePool, cfg: AppConfig, admin_token: String)
 
     let app = api
         .route("/", get(|| async { "sub-merge is running" }))
-        .fallback(crate::static_handler::fallback)
+        .fallback(crate::static::fallback)
         .with_state(state);
 
     app
 }
 ```
-（将 `static_handler` 模块移动到 `crate::static.rs`，并改为接收 `State` 的签名）
+（`crate::static::fallback` 签名：`pub async fn fallback(State(state): State<AppState>, uri: Uri) -> Response`，在 `crate::static.rs` 定义，并确保 `pub mod static;` 已加入 lib.rs）
 
 - [ ] **Step 7: 追加静态测试到 `tests/api_test.rs`**
 
