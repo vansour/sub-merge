@@ -1,2 +1,4 @@
 .worktrees/
 target/
+# web crate 构建产物 symlink（dx 0.8 输出固定到 target/dx/...，dist 是指向它的 symlink）
+crates/server/web/dist

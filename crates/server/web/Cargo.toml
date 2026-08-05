@@ -1,0 +1,27 @@
+[package]
+name = "submerge-web"
+version = "0.1.0"
+# 独立于 workspace：web 是 WASM 构建目标，不加入根 workspace members，
+# 避免 dx build 与 cargo build --workspace 冲突。用字面 edition 而非 workspace 继承。
+# 空的 [workspace] 表让本 package 从父目录 workspace 中 opt out
+# （cargo metadata 报 "current package believes it's in a workspace when it's not"）。
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+# dioxus 0.8 是 prerelease：必须写精确 alpha 版本（^0.8 不含 alpha）。
+# 已实测：dioxus 0.8.0-alpha.1 + dx 0.8.0-alpha.1 可成功 dx build --web（binary crate）。
+dioxus = { version = "0.8.0-alpha.1", features = ["web"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+# localStorage 是 Window 上的方法（Window feature），返回 Storage 类型；
+# web-sys 没有 "localStorage"/"window" feature（大小写敏感，cargo metadata 会拒绝该名字）。
+web-sys = { version = "0.3", features = ["console", "Window", "Storage"] }
+gloo-net = { version = "0.6", features = ["http"] }  # 轻量 fetch 封装
+
+[profile.release]
+opt-level = "s"

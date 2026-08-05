@@ -1,0 +1,5 @@
+# dx 0.8 说明：
+# - web 构建输出固定到 target/dx/<crate>/debug|release/web/public（无 [web] out_dir 配置键）。
+# - crates/server/web/dist 是一个 git-ignored symlink，指向 target/dx/submerge-web/debug/web/public，
+#   供 axum 服务器 WEB_DIST 默认值（./web/dist）解析到构建产物。
+[web]
