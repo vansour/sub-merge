@@ -154,6 +154,14 @@ async fn refresh_source(
     match result {
         Ok(text) => {
             let (nodes, _skipped) = proxy_core::parser::parse_subscription_text(&text, state.cfg.max_nodes);
+            // 与 fetch_and_merge 一致：抓取成功但解析出 0 个节点视为源错误。
+            if nodes.is_empty() {
+                return Ok(Json(serde_json::json!({
+                    "source": source.name,
+                    "ok": false,
+                    "reason": "no nodes parsed",
+                })));
+            }
             Ok(Json(serde_json::json!({
                 "source": source.name,
                 "ok": true,

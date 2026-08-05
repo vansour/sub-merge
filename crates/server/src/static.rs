@@ -1,4 +1,5 @@
 // crates/server/src/static.rs
+use crate::error::ApiError;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::State;
@@ -7,6 +8,11 @@ use axum::response::{IntoResponse, Response};
 
 /// 从 web_dist 目录提供静态资源。SPA 回退：找不到文件时返回 index.html。
 pub async fn fallback(State(state): State<AppState>, uri: Uri) -> Response {
+    // 未知的 /api/* 路径绝不回退到 SPA index.html，返回统一 JSON 404。
+    if uri.path().starts_with("/api/") {
+        return ApiError::not_found("route not found").into_response();
+    }
+
     let root = state.cfg.web_dist.clone();
     let rel_path = uri.path().trim_start_matches('/');
     let rel_path = if rel_path.is_empty() { "index.html" } else { rel_path };
