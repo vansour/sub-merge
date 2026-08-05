@@ -1,0 +1,13 @@
+# 构建上下文排除：避免把本地 4GB+ 的 target 目录、git 历史等发进 build context
+.git
+.worktrees
+.superpowers
+docs
+target
+crates/server/web/target
+crates/server/web/dist
+crates/server/web/public
+**/*.db
+**/*.db-wal
+**/*.db-shm
+*.log
