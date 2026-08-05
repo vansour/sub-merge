@@ -20,6 +20,7 @@ pub fn parse_vmess(uri: &str) -> Result<ProxyNode, ParseError> {
         v.get(k).and_then(|x| match x {
             serde_json::Value::String(s) => Some(s.clone()),
             serde_json::Value::Number(n) => Some(n.to_string()),
+            serde_json::Value::Bool(b) => Some(b.to_string()),
             _ => None,
         })
     };
@@ -116,14 +117,33 @@ pub fn serialize_vmess(node: &ProxyNode) -> Result<String, SerializeError> {
     let fp = node.tls.as_ref().and_then(|t| t.fingerprint.clone()).unwrap_or_default();
     let insecure = node.tls.as_ref().map(|t| t.insecure).unwrap_or(false);
 
-    let obj = json!({
-        "v": "2", "ps": node.name, "add": node.server, "port": node.port.to_string(),
-        "id": uuid, "aid": node.alter_id.unwrap_or(0).to_string(),
-        "net": net, "type": type_, "host": host, "path": path,
-        "tls": tls_str, "sni": sni, "alpn": alpn, "fp": fp,
-        "allowInsecure": if insecure { "1" } else { "0" },
-    });
-    let s = serde_json::to_string(&obj).map_err(|_| SerializeError::MissingField("json"))?;
+    // 空的可选字段（host/sni/alpn/fp）不写入 JSON，保证 parse->serialize 幂等。
+    let mut obj = serde_json::Map::new();
+    obj.insert("v".into(), json!("2"));
+    obj.insert("ps".into(), json!(node.name));
+    obj.insert("add".into(), json!(node.server));
+    obj.insert("port".into(), json!(node.port.to_string()));
+    obj.insert("id".into(), json!(uuid));
+    obj.insert("aid".into(), json!(node.alter_id.unwrap_or(0).to_string()));
+    obj.insert("net".into(), json!(net));
+    obj.insert("type".into(), json!(type_));
+    obj.insert("path".into(), json!(path));
+    if !host.is_empty() {
+        obj.insert("host".into(), json!(host));
+    }
+    obj.insert("tls".into(), json!(tls_str));
+    if !sni.is_empty() {
+        obj.insert("sni".into(), json!(sni));
+    }
+    if !alpn.is_empty() {
+        obj.insert("alpn".into(), json!(alpn));
+    }
+    if !fp.is_empty() {
+        obj.insert("fp".into(), json!(fp));
+    }
+    obj.insert("allowInsecure".into(), json!(if insecure { "1" } else { "0" }));
+    let s = serde_json::to_string(&serde_json::Value::Object(obj))
+        .map_err(|_| SerializeError::MissingField("json"))?;
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, s.as_bytes());
     Ok(format!("vmess://{}", b64))
 }
