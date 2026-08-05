@@ -245,10 +245,8 @@ fn App() -> Element {
 
 ```rust
 // crates/server/web/src/components/mod.rs
-pub mod config;
+// Task 2 只声明 login。sources(Task3)/preview(Task4)/config(Task5) 由各 Task 创建时加声明。
 pub mod login;
-pub mod preview;
-pub mod sources;
 ```
 
 - [ ] **Step 3: 实现 login.rs**
