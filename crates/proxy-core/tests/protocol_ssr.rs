@@ -1,4 +1,4 @@
-use proxy_core::model::{Crypto, Protocol};
+use proxy_core::model::{Crypto, Protocol, ProxyNode};
 use proxy_core::protocols::ssr::{parse_ssr, serialize_ssr};
 
 // SSR 链接整体 base64url（不带 padding），解码后明文为:
@@ -32,4 +32,27 @@ fn serialize_roundtrip() {
     assert_eq!(n2.server, n.server);
     assert_eq!(n2.port, n.port);
     assert_eq!(n2.password, n.password);
+}
+
+#[test]
+fn serialize_roundtrip_password_with_slash_in_standard_b64() {
+    // 回归：password "aa?" 的 STANDARD base64 是 "YWE/"，含 '/'。
+    // 若内部 password 用 STANDARD 编码，parse_ssr_decoded 的 find('/') 会在 base64 中截断，丢掉 '?'。
+    // 内部改用 base64url 后应完整往返。
+    let n = ProxyNode {
+        name: "US-01".into(),
+        kind: Protocol::Ssr,
+        server: "1.2.3.4".into(),
+        port: 8388,
+        crypto: Some(Crypto::Aes256Cfb),
+        password: Some("aa?".into()),
+        ..Default::default()
+    };
+    let out = serialize_ssr(&n).unwrap();
+    assert!(out.starts_with("ssr://"));
+    let n2 = parse_ssr(&out).unwrap();
+    assert_eq!(n2.server, n.server);
+    assert_eq!(n2.port, n.port);
+    assert_eq!(n2.password.as_deref(), Some("aa?"));
+    assert_eq!(n2.name, n.name);
 }
