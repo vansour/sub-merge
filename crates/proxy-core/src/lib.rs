@@ -3,6 +3,7 @@
 // uri/parser/serializer/protocols/formats 模块由后续 Task 创建时再添加声明。
 pub mod error;
 pub mod model;
+pub mod protocols;
 pub mod uri;
 
 pub use error::{ParseError, SerializeError};
