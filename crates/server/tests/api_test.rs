@@ -283,3 +283,67 @@ async fn admin_crud_sources() {
     let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn preview_returns_node_list() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/sub"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"))
+        .mount(&mock).await;
+
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-preview", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let url = format!("{}/sub", mock.uri());
+    sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+        .bind(&url).bind("mock").bind("now").execute(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let resp = app.clone().oneshot(Request::builder()
+        .uri("/api/admin/preview")
+        .header("authorization", format!("Bearer {}", admin))
+        .body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["total"], 1);
+    assert_eq!(v["nodes"][0]["name"], "A");
+}
+
+#[tokio::test]
+async fn config_get_and_rotate() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-config", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    // GET config
+    let resp = app.clone().oneshot(Request::builder()
+        .uri("/api/admin/config")
+        .header("authorization", format!("Bearer {}", admin))
+        .body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["subscribe_token"], sub);
+
+    // rotate subscribe token
+    let resp = app.clone().oneshot(Request::builder()
+        .method("PUT")
+        .uri("/api/admin/config")
+        .header("authorization", format!("Bearer {}", admin))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"rotate": "subscribe"}).to_string()))
+        .unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_ne!(v["subscribe_token"], sub);
+}
