@@ -1,6 +1,7 @@
 // crates/server/src/routes/mod.rs
 // Task 1 只建立最小 Router。subscribe/sources/preview/config 子模块
 // 由 Task 2-4 创建时在 lib.rs 和本文件补声明。
+pub mod sources;
 pub mod subscribe;
 
 use crate::state::AppState;
@@ -12,5 +13,6 @@ pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::Ap
     Router::new()
         .route("/", get(|| async { "sub-merge is running" }))
         .route("/api/subscribe", get(subscribe::subscribe_handler))
+        .merge(sources::router())
         .with_state(state)
 }

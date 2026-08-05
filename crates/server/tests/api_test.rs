@@ -1,5 +1,6 @@
 use server::config::AppConfig;
 use server::db::init_db;
+use serde_json::json;
 use sqlx::sqlite::SqlitePool;
 use tower::ServiceExt;
 use axum::body::Body;
@@ -197,4 +198,88 @@ async fn fetch_and_merge_respects_concurrency_cap() {
     let max = max_active.load(Ordering::SeqCst);
     assert!(max <= 2, "concurrency cap exceeded: {max} concurrent requests");
     assert!(max >= 2, "expected batching under the cap, got max concurrent {max}");
+}
+
+#[tokio::test]
+async fn admin_requires_bearer_token() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-noauth", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    // 无 header
+    let resp = app.clone()
+        .oneshot(Request::builder().uri("/api/admin/sources").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // 错误 token
+    let resp = app.clone()
+        .oneshot(Request::builder()
+            .uri("/api/admin/sources")
+            .header("authorization", "Bearer wrong")
+            .body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn admin_crud_sources() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-crud", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert("authorization", format!("Bearer {}", admin).parse().unwrap());
+        req
+    };
+
+    // create
+    let resp = app.clone().oneshot(auth(Request::builder()
+        .method("POST")
+        .uri("/api/admin/sources")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"url": "https://example.com/sub", "name": "src1"}).to_string()))
+        .unwrap()))
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = v["id"].as_i64().unwrap();
+
+    // list
+    let resp = app.clone().oneshot(auth(Request::builder().uri("/api/admin/sources").body(Body::empty()).unwrap())).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+
+    // update enabled=false
+    let resp = app.clone().oneshot(auth(Request::builder()
+        .method("PUT")
+        .uri(format!("/api/admin/sources/{}", id))
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"enabled": false}).to_string()))
+        .unwrap()))
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // delete
+    let resp = app.clone().oneshot(auth(Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/admin/sources/{}", id))
+        .body(Body::empty()).unwrap()))
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // list empty
+    let resp = app.clone().oneshot(auth(Request::builder().uri("/api/admin/sources").body(Body::empty()).unwrap())).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 0);
 }
