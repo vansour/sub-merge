@@ -32,7 +32,7 @@ fn App() -> Element {
 }
 
 // Task 3：主界面骨架。Tab 导航：订阅源 / 预览(Task4) / 配置(Task5)。
-// 订阅源/预览 已实现；配置 tab 用占位 div，Task5 替换为真实组件。
+// 三个 tab 均已实现（Task5 完成配置页）。
 #[component]
 fn MainShell(token: Signal<Option<String>>) -> Element {
     let mut tab = use_signal(|| 0usize);
@@ -51,8 +51,8 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
             match *tab.read() {
                 0 => rsx! { components::sources::Sources { token } },
                 1 => rsx! { components::preview::Preview { token } },
-                // 配置占位，Task5 实现
-                _ => rsx! { div { class: "card", p { "配置（Task 5 实现）" } } },
+                // 配置 tab（Task5）：订阅链接复制 + token 轮换
+                _ => rsx! { components::config::Config { token } },
             }
         }
     }

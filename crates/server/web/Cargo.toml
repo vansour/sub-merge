@@ -20,7 +20,8 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 # localStorage 是 Window 上的方法（Window feature），返回 Storage 类型；
 # web-sys 没有 "localStorage"/"window" feature（大小写敏感，cargo metadata 会拒绝该名字）。
-web-sys = { version = "0.3", features = ["console", "Window", "Storage"] }
+# Task 5 需要 Clipboard（写剪贴板）/ Navigator / Location（拼订阅链接 base url）。
+web-sys = { version = "0.3", features = ["console", "Window", "Storage", "Clipboard", "Navigator", "Location"] }
 gloo-net = { version = "0.6", features = ["http"] }  # 轻量 fetch 封装
 
 [profile.release]
