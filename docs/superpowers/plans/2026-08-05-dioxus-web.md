@@ -67,15 +67,14 @@ cargo install dioxus-cli  # 可能较慢；或使用 dx 已装版本
 [package]
 name = "submerge-web"
 version = "0.1.0"
-# 独立于 workspace：web 是 WASM 构建目标（cdylib），不加入根 workspace members，
+# 独立于 workspace：web 是 WASM 构建目标，不加入根 workspace members，
 # 避免 dx build 与 cargo build --workspace 冲突。用字面 edition 而非 workspace 继承。
 edition = "2024"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-dioxus = { version = "0.8", features = ["web"] }
+# dioxus 0.8 是 prerelease：必须写精确 alpha 版本（^0.8 不含 alpha）。
+# 已实测：dioxus 0.8.0-alpha.1 + dx 0.8.0-alpha.1 可成功 dx build --web（binary crate）。
+dioxus = { version = "0.8.0-alpha.1", features = ["web"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasm-bindgen = "0.2"
@@ -88,7 +87,10 @@ gloo-net = { version = "0.6", features = ["http"] }  # 轻量 fetch 封装
 opt-level = "s"
 ```
 
-> **说明**：0.8 alpha 的 `dioxus/web` feature 命名以实际发布为准。若 `dioxus = { version = "0.8", features = ["web"] }` 不可用，回退到 `dioxus-web` crate + `dioxus::launch`（见 Step 5 的备选）。
+> **实测结论（pre-flight）**：
+> - dx 必须是 **0.8.0-alpha.1**（`cargo install dioxus-cli --version 0.8.0-alpha.1`）——dx 0.7.10 与 dioxus 0.8 版本不兼容。
+> - 项目必须是 **binary crate**（`src/main.rs` + `dioxus::launch`），不要 `[lib] crate-type`——dx 报 "Failed to find target"。
+> - `dx build --web` 产出在 `target/dx/<name>/debug/web/public`，需配置 out_dir 或用 dx.toml 控制。
 
 - [ ] **Step 3: 创建 index.html**
 
