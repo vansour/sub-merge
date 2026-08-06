@@ -113,7 +113,6 @@ pub struct Transport {
     pub websocket: Option<WebsocketConfig>,
     pub grpc: Option<GrpcConfig>,
     pub http_upgrade: Option<HttpUpgradeConfig>,
-    pub shadow_tls: Option<ShadowTlsConfig>, // shadowtls 作为传输扩展
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,14 +131,6 @@ pub struct GrpcConfig {
 pub struct HttpUpgradeConfig {
     pub path: String,
     pub host: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShadowTlsConfig {
-    pub server: String,
-    pub port: u16,
-    pub password: String,
-    pub sni: Option<String>,
 }
 
 /// TLS 配置

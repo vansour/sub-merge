@@ -24,7 +24,7 @@
 ### 关键决策（已与用户确认）
 1. **方案**：自研 `proxy-core` 协议解析/转换核心（不依赖不成熟的第三方转换库）
 2. **输出格式**：第一版 Clash + V2Ray + Sing-box 三种
-3. **协议覆盖**：11 种 —— ss、ssr、socks5、http、vmess、vless、trojan、hysteria2、hysteria1、tuic、wireguard（shadowtls 作为 ss 的传输扩展，非独立协议）
+3. **协议覆盖**：11 种 —— ss、ssr、socks5、http、vmess、vless、trojan、hysteria2、hysteria1、tuic、wireguard（shadowtls 不在第一版范围）
 4. **鉴权**：订阅 token 与 管理 token 分两把，独立轮换
 5. **数据获取**：实时拉取，不缓存
 6. **存储**：SQLite，管理界面可编辑订阅源与 token
@@ -92,7 +92,7 @@ struct ProxyNode {
     alter_id: Option<u16>,         // VMess
     // 传输与安全
     tls: Option<TlsSettings>,      // 启用/SNI/ALPN/证书校验/指纹
-    transport: Option<Transport>,  // ws/grpc/h2/shadowsocks over TLS（shadowtls 扩展）
+    transport: Option<Transport>,  // ws/grpc/h2/httpupgrade
     // 其他协议特有字段，用 Option 保留
 }
 ```
@@ -238,7 +238,7 @@ sub-merge/
 | 节点处理 | 只要转换，不做测速/过滤/去重 |
 | 存储 | SQLite（SQLx） |
 | 输出格式 | Clash + V2Ray + Sing-box（第一版） |
-| 协议范围 | 11 种（ss ssr socks5 http vmess vless trojan hysteria2 hysteria1 tuic wireguard + shadowtls 传输扩展） |
+| 协议范围 | 11 种（ss ssr socks5 http vmess vless trojan hysteria2 hysteria1 tuic wireguard，shadowtls 不在第一版范围） |
 | 鉴权 | 订阅/管理 token 分两把，独立轮换 |
 | 拉取策略 | 实时拉取，不缓存 |
 | Dioxus | Web (WASM) 模式 |
