@@ -1,6 +1,4 @@
 // crates/server/src/routes/mod.rs
-// Task 1 只建立最小 Router。subscribe/sources/preview/config 子模块
-// 由 Task 2-4 创建时在 lib.rs 和本文件补声明。
 pub mod config;
 pub mod preview;
 pub mod sources;
@@ -17,7 +15,7 @@ pub async fn build_router(
 ) -> Router {
     let state = AppState::new(pool, cfg, admin_token);
     let api = Router::new()
-        .route("/api/subscribe", get(subscribe::subscribe_handler))
+        .route("/subscribe/{name}", get(subscribe::subscribe_handler))
         .merge(sources::router())
         .merge(preview::router())
         .merge(config::router());

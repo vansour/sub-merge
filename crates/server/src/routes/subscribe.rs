@@ -3,38 +3,29 @@ use crate::error::ApiError;
 use crate::service;
 use crate::state::AppState;
 use axum::extract::rejection::QueryRejection;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::response::Response;
 use proxy_core::serializer::{OutputFormat, serialize_nodes};
-use sqlx::Row;
 use std::str::FromStr;
 
 #[derive(serde::Deserialize)]
 pub struct SubscribeQuery {
-    pub token: Option<String>,
     pub format: Option<String>,
 }
 
 pub async fn subscribe_handler(
     State(state): State<AppState>,
+    Path(name): Path<String>,
     q: Result<Query<SubscribeQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
     let Query(q) = q.map_err(ApiError::from)?;
-    // 校验订阅 token
-    let stored = sqlx::query("SELECT value FROM settings WHERE key = 'subscribe_token'")
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(ApiError::from)?;
-    let Some(row) = stored else {
-        return Err(ApiError::internal("subscribe token not initialized"));
-    };
-    let stored: String = row.get(0);
-    let Some(tok) = &q.token else {
-        return Err(ApiError::unauthorized("missing subscribe token"));
-    };
-    // 恒定时间比较
-    if !constant_eq(tok, &stored) {
-        return Err(ApiError::unauthorized("invalid subscribe token"));
+    // 组合订阅名必须匹配 settings 中的 combined_name（缺省 merged）。
+    // 不匹配 → 404（区别于 SPA 回退的 HTML 404，走统一 JSON 错误格式）。
+    let combined = crate::db::get_setting(&state.pool, "combined_name")
+        .await?
+        .unwrap_or_else(|| "merged".to_string());
+    if name != combined {
+        return Err(ApiError::not_found("combined subscription not found"));
     }
 
     let format = match &q.format {
@@ -72,15 +63,4 @@ pub async fn subscribe_handler(
         .body(axum::body::Body::from(body))
         .unwrap();
     Ok(resp)
-}
-
-/// 恒定时间字符串比较，防时序侧信道。
-fn constant_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes()
-        .zip(b.bytes())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
 }

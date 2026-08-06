@@ -40,7 +40,7 @@ async fn api_unknown_path_returns_json_404_not_spa() {
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/api/does-not-exist")
+                .uri("/admin/does-not-exist")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -107,7 +107,7 @@ async fn refresh_source_zero_nodes_reports_ok_false() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/admin/sources/1/refresh")
+                .uri("/admin/sources/1/refresh")
                 .header("authorization", format!("Bearer {admin_token}"))
                 .body(Body::empty())
                 .unwrap(),

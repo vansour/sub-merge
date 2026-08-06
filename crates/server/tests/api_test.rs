@@ -119,29 +119,56 @@ async fn unknown_route_returns_404() {
 }
 
 #[tokio::test]
-async fn subscribe_requires_token() {
-    let tmp = std::env::temp_dir().join(format!(
-        "submerge-test-{}-sub-requires-token",
-        std::process::id()
-    ));
+async fn subscribe_without_token_succeeds() {
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-sub-notoken", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
-    // 无 token
+    // 无任何 token 参数即可访问；无源时输出空 clash 配置
     let resp = app
-        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/subscribe")
+                .uri("/subscribe/merged?format=clash")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn subscribe_wrong_combined_name_returns_404() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-404", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/subscribe/not-a-sub")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.contains("application/json"),
+        "expected JSON 404, got {ct:?}"
+    );
 }
 
 #[tokio::test]
@@ -158,7 +185,7 @@ async fn subscribe_with_valid_token_returns_subscription() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-valid", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
 
     // 插入一个指向 mock server 的源
     let url = format!("{}/sub", mock.uri());
@@ -177,7 +204,7 @@ async fn subscribe_with_valid_token_returns_subscription() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/api/subscribe?token={}&format=clash", sub))
+                .uri("/subscribe/merged?format=clash")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -197,7 +224,7 @@ async fn subscribe_wrong_format_returns_bad_request() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-badfmt", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -205,7 +232,7 @@ async fn subscribe_wrong_format_returns_bad_request() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/api/subscribe?token={}&format=bogus", sub))
+                .uri("/subscribe/merged?format=bogus")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -327,7 +354,7 @@ async fn admin_requires_bearer_token() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/admin/sources")
+                .uri("/admin/sources")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -340,7 +367,7 @@ async fn admin_requires_bearer_token() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/admin/sources")
+                .uri("/admin/sources")
                 .header("authorization", "Bearer wrong")
                 .body(Body::empty())
                 .unwrap(),
@@ -373,7 +400,7 @@ async fn admin_crud_sources() {
         .oneshot(auth(
             Request::builder()
                 .method("POST")
-                .uri("/api/admin/sources")
+                .uri("/admin/sources")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({"url": "https://example.com/sub", "name": "src1"}).to_string(),
@@ -394,7 +421,7 @@ async fn admin_crud_sources() {
         .clone()
         .oneshot(auth(
             Request::builder()
-                .uri("/api/admin/sources")
+                .uri("/admin/sources")
                 .body(Body::empty())
                 .unwrap(),
         ))
@@ -413,7 +440,7 @@ async fn admin_crud_sources() {
         .oneshot(auth(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/api/admin/sources/{}", id))
+                .uri(format!("/admin/sources/{}", id))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"enabled": false}).to_string()))
                 .unwrap(),
@@ -428,7 +455,7 @@ async fn admin_crud_sources() {
         .oneshot(auth(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/api/admin/sources/{}", id))
+                .uri(format!("/admin/sources/{}", id))
                 .body(Body::empty())
                 .unwrap(),
         ))
@@ -441,7 +468,7 @@ async fn admin_crud_sources() {
         .clone()
         .oneshot(auth(
             Request::builder()
-                .uri("/api/admin/sources")
+                .uri("/admin/sources")
                 .body(Body::empty())
                 .unwrap(),
         ))
@@ -484,7 +511,7 @@ async fn preview_returns_node_list() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/admin/preview")
+                .uri("/admin/preview")
                 .header("authorization", format!("Bearer {}", admin))
                 .body(Body::empty())
                 .unwrap(),
@@ -505,49 +532,148 @@ async fn config_get_and_rotate() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-config", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
-    // GET config
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
+        req
+    };
+
+    // GET config：默认 merged、无订阅 token 字段
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .uri("/admin/config")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["combined_name"], "merged");
+    assert_eq!(v["subscribe_url"], "/subscribe/merged");
+    assert!(
+        v.get("subscribe_token").is_none(),
+        "subscribe_token must be gone"
+    );
+
+    // 轮换 subscribe → 400（rotate 仅接受 admin）
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/config")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"rotate": "subscribe"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // 改组合订阅名 → 链接跟随
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/config")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"combined_name": "my-sub"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["combined_name"], "my-sub");
+    assert_eq!(v["subscribe_url"], "/subscribe/my-sub");
+
+    // 非法名字 → 400
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/config")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"combined_name": "bad name!"}).to_string(),
+                ))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn combined_name_rename_takes_effect() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-cfg-rename", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
+        req
+    };
+    // 改名 my-sub
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri("/admin/config")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"combined_name": "my-sub"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // 新名字可访问，旧名字 404
     let resp = app
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/admin/config")
-                .header("authorization", format!("Bearer {}", admin))
+                .uri("/subscribe/my-sub?format=clash")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["subscribe_token"], sub);
-
-    // rotate subscribe token
     let resp = app
-        .clone()
         .oneshot(
             Request::builder()
-                .method("PUT")
-                .uri("/api/admin/config")
-                .header("authorization", format!("Bearer {}", admin))
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"rotate": "subscribe"}).to_string()))
+                .uri("/subscribe/merged?format=clash")
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_ne!(v["subscribe_token"], sub);
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -576,7 +702,7 @@ async fn admin_token_rotation_takes_effect_live() {
             &admin,
             Request::builder()
                 .method("PUT")
-                .uri("/api/admin/config")
+                .uri("/admin/config")
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"rotate": "admin"}).to_string()))
                 .unwrap(),
@@ -597,7 +723,7 @@ async fn admin_token_rotation_takes_effect_live() {
         .oneshot(auth(
             &admin,
             Request::builder()
-                .uri("/api/admin/config")
+                .uri("/admin/config")
                 .body(Body::empty())
                 .unwrap(),
         ))
@@ -611,7 +737,7 @@ async fn admin_token_rotation_takes_effect_live() {
         .oneshot(auth(
             &new_admin,
             Request::builder()
-                .uri("/api/admin/config")
+                .uri("/admin/config")
                 .body(Body::empty())
                 .unwrap(),
         ))
@@ -640,7 +766,7 @@ async fn assert_error_json(resp: axum::response::Response, expected_code: &str) 
 
 #[tokio::test]
 async fn rejection_non_numeric_id_returns_unified_json() {
-    // 回归：PUT /api/admin/sources/abc 的非数字 {id} 应走统一错误格式
+    // 回归：PUT /admin/sources/abc 的非数字 {id} 应走统一错误格式
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-path", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
@@ -653,7 +779,7 @@ async fn rejection_non_numeric_id_returns_unified_json() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/api/admin/sources/abc")
+                .uri("/admin/sources/abc")
                 .header("authorization", format!("Bearer {}", admin))
                 .header("content-type", "application/json")
                 .body(Body::from(json!({"enabled": false}).to_string()))
@@ -666,7 +792,7 @@ async fn rejection_non_numeric_id_returns_unified_json() {
 
 #[tokio::test]
 async fn rejection_malformed_json_returns_unified_json() {
-    // 回归：POST /api/admin/sources 的 malformed JSON body 应走统一错误格式
+    // 回归：POST /admin/sources 的 malformed JSON body 应走统一错误格式
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-json", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
@@ -679,7 +805,7 @@ async fn rejection_malformed_json_returns_unified_json() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/admin/sources")
+                .uri("/admin/sources")
                 .header("authorization", format!("Bearer {}", admin))
                 .header("content-type", "application/json")
                 .body(Body::from("{\"url\": \"\"")) // 语法错误的 JSON
@@ -706,7 +832,7 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-wg-skip", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
         .bind(&url)
@@ -722,7 +848,7 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(format!("/api/subscribe?token={}&format=clash", sub))
+                .uri("/subscribe/merged?format=clash")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -759,7 +885,16 @@ async fn api_path_variants_return_json_404() {
     };
     let app = server::routes::build_router(pool, cfg, admin).await;
 
-    for path in ["/api", "//api/admin/sources", "/api%2Fadmin/preview"] {
+    for path in [
+        "/api",
+        "//admin/sources",
+        "/api%2Fadmin/preview",
+        "/admin",
+        "//admin/sources",
+        "/admin%2Fsources/preview",
+        "/subscribe",
+        "//subscribe/whatever",
+    ] {
         let resp = app
             .clone()
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())

@@ -9,7 +9,7 @@ use axum::{Json, Router};
 use serde_json::json;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/admin/preview", get(preview_handler))
+    Router::new().route("/admin/preview", get(preview_handler))
 }
 
 async fn preview_handler(

@@ -32,12 +32,12 @@ pub struct UpdateSource {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/admin/sources", get(list_sources).post(create_source))
+        .route("/admin/sources", get(list_sources).post(create_source))
         .route(
-            "/api/admin/sources/{id}",
+            "/admin/sources/{id}",
             put(update_source).delete(delete_source),
         )
-        .route("/api/admin/sources/{id}/refresh", post(refresh_source))
+        .route("/admin/sources/{id}/refresh", post(refresh_source))
 }
 
 async fn list_sources(

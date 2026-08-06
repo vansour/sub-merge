@@ -9,19 +9,41 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/admin/config", get(get_config).put(rotate_config))
+    Router::new().route("/admin/config", get(get_config).put(rotate_config))
 }
 
 #[derive(Serialize)]
 pub struct ConfigDto {
-    pub subscribe_token: String,
     pub admin_token: String,
+    pub combined_name: String,
     pub subscribe_url: String,
 }
 
 #[derive(Deserialize)]
 pub struct RotateConfig {
     pub rotate: Option<String>,
+    pub combined_name: Option<String>,
+}
+
+/// 组合订阅名：路径段安全（无 URL 编码），限定 [A-Za-z0-9-_]
+fn valid_combined_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+async fn config_dto(state: &AppState) -> Result<ConfigDto, ApiError> {
+    let admin = crate::db::get_setting(&state.pool, "admin_token")
+        .await?
+        .unwrap_or_default();
+    let combined_name = crate::db::get_setting(&state.pool, "combined_name")
+        .await?
+        .unwrap_or_else(|| "merged".to_string());
+    Ok(ConfigDto {
+        admin_token: admin,
+        subscribe_url: format!("/subscribe/{}", combined_name),
+        combined_name,
+    })
 }
 
 async fn get_config(
@@ -29,17 +51,7 @@ async fn get_config(
     headers: axum::http::HeaderMap,
 ) -> Result<Json<ConfigDto>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
-    let sub = crate::db::get_setting(&state.pool, "subscribe_token")
-        .await?
-        .unwrap_or_default();
-    let admin = crate::db::get_setting(&state.pool, "admin_token")
-        .await?
-        .unwrap_or_default();
-    Ok(Json(ConfigDto {
-        subscribe_token: sub,
-        admin_token: admin,
-        subscribe_url: "/api/subscribe".to_string(),
-    }))
+    Ok(Json(config_dto(&state).await?))
 }
 
 async fn rotate_config(
@@ -50,32 +62,24 @@ async fn rotate_config(
     require_admin(State(state.clone()), headers).await?;
     let Json(body) = body.map_err(ApiError::from)?;
     match body.rotate.as_deref() {
-        Some("subscribe") => {
-            let t = crate::db::gen_token();
-            crate::db::set_setting(&state.pool, "subscribe_token", &t).await?;
-        }
+        // 订阅 token 已随订阅 token 移除；rotate 仅接受 admin。
         Some("admin") => {
             let t = crate::db::gen_token();
             crate::db::set_setting(&state.pool, "admin_token", &t).await?;
-            state.rotate_admin(t.clone()).await;
-            // 注意：轮换 admin token 后，旧 token 立即失效。本请求用旧 token 调用已通过校验。
+            state.rotate_admin(t).await;
         }
         Some(_) => {
-            return Err(ApiError::bad_request(
-                "rotate must be 'subscribe' or 'admin'",
-            ));
+            return Err(ApiError::bad_request("rotate must be 'admin'"));
         }
         None => {}
     }
-    let sub = crate::db::get_setting(&state.pool, "subscribe_token")
-        .await?
-        .unwrap_or_default();
-    let admin = crate::db::get_setting(&state.pool, "admin_token")
-        .await?
-        .unwrap_or_default();
-    Ok(Json(ConfigDto {
-        subscribe_token: sub,
-        admin_token: admin,
-        subscribe_url: "/api/subscribe".to_string(),
-    }))
+    if let Some(n) = &body.combined_name {
+        if !valid_combined_name(n) {
+            return Err(ApiError::bad_request(
+                "combined_name must match [A-Za-z0-9-_]",
+            ));
+        }
+        crate::db::set_setting(&state.pool, "combined_name", n).await?;
+    }
+    Ok(Json(config_dto(&state).await?))
 }

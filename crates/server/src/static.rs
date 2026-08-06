@@ -8,10 +8,10 @@ use axum::response::{IntoResponse, Response};
 
 /// 从 web_dist 目录提供静态资源。SPA 回退：找不到文件时返回 index.html。
 pub async fn fallback(State(state): State<AppState>, uri: Uri) -> Response {
-    // 未知的 /api 路径（含 /api、//api/x、编码斜杠形态如 /api%2F...）绝不回退到 SPA
-    // index.html，返回统一 JSON 404。api 前缀整体保留给 API 命名空间（无 api 前缀静态资源）。
+    // 未知的 API 命名空间路径（/api/*、/admin/*、/subscribe/*，含 // 双斜杠与编码斜杠形态）
+    // 绝不回退到 SPA index.html，返回统一 JSON 404。其余路径（含前端路由）回退 SPA。
     let p = uri.path().trim_start_matches('/');
-    if p.starts_with("api") {
+    if p.starts_with("api") || p.starts_with("admin") || p.starts_with("subscribe") {
         return ApiError::not_found("route not found").into_response();
     }
 
