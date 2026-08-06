@@ -443,6 +443,40 @@ async fn rejection_malformed_json_returns_unified_json() {
 }
 
 #[tokio::test]
+async fn subscribe_skips_unserializable_node_instead_of_500() {
+    // 源包含一个可解析但无法序列化的 wireguard 节点（缺 privateKey）+ 一个正常 ss 节点
+    let mock = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/sub"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#OK\n\
+             wireguard://cHVibGljS2V5MTIz@1.2.3.4:443?publicKey=cHVibGljS2V5MTIz#WG\n",
+        ))
+        .mount(&mock)
+        .await;
+
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-wg-skip", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let url = format!("{}/sub", mock.uri());
+    sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+        .bind(&url).bind("mock").bind("now").execute(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    let resp = app.clone()
+        .oneshot(Request::builder()
+            .uri(format!("/api/subscribe?token={}&format=clash", sub))
+            .body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "bad node must not 500 the subscription");
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains("name: OK"), "good node must survive");
+    assert!(!body.contains("WG"), "unserializable node must be skipped");
+}
+
+#[tokio::test]
 async fn static_index_served_from_dist() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-static", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
