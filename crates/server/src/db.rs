@@ -30,10 +30,16 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
     .execute(&pool)
     .await?;
 
-    // 旧库迁移：早期版本建表无 kind 列。ALTER 失败（列已存在）忽略。
-    let _ = sqlx::query("ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'remote'")
-        .execute(&pool)
-        .await;
+    // 旧库迁移：早期版本建表无 kind 列。仅当列已存在时忽略 ALTER 失败，
+    // 其余错误（IO/锁等）一律传播。
+    if let Err(e) =
+        sqlx::query("ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'remote'")
+            .execute(&pool)
+            .await
+        && !e.to_string().contains("duplicate column name")
+    {
+        return Err(e.into());
+    }
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS settings (

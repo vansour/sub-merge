@@ -172,7 +172,7 @@ async fn subscribe_wrong_combined_name_returns_404() {
 }
 
 #[tokio::test]
-async fn subscribe_with_valid_token_returns_subscription() {
+async fn subscribe_returns_subscription() {
     let mock = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/sub"))
@@ -890,7 +890,7 @@ async fn api_path_variants_return_json_404() {
         "//admin/sources",
         "/api%2Fadmin/preview",
         "/admin",
-        "//admin/sources",
+        "//api/admin/sources",
         "/admin%2Fsources/preview",
         "/subscribe",
         "//subscribe/whatever",
@@ -1188,7 +1188,7 @@ async fn admin_crud_respects_kind() {
         req
     };
 
-    // 创建 kind=single 源 → 响应与列表都带 kind
+    // 创建 kind=single 源 → 创建响应带 kind
     let resp = app
         .clone()
         .oneshot(auth(
@@ -1269,4 +1269,91 @@ async fn admin_crud_respects_kind() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["kind"], "remote");
+}
+
+#[tokio::test]
+async fn refresh_single_source_reports_locally() {
+    let tmp = std::env::temp_dir().join(format!(
+        "submerge-test-{}-single-refresh",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool.clone(), cfg, admin.clone()).await;
+
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
+        req
+    };
+
+    // kind=single 源：本地解析单条 ss 链接，不拉网络
+    let res = sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, 'single', 1, ?)",
+    )
+    .bind("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S")
+    .bind("single-ok")
+    .bind("now")
+    .execute(&pool)
+    .await
+    .unwrap();
+    let id = res.last_insert_rowid();
+
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/admin/sources/{id}/refresh"))
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], serde_json::Value::Bool(true));
+    assert_eq!(v["node_count"], serde_json::Value::Number(1.into()));
+
+    // kind=single 源：URI 非法 → ok false，reason 含 parse failed
+    let res = sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, 'single', 1, ?)",
+    )
+    .bind("not a uri")
+    .bind("single-bad")
+    .bind("now")
+    .execute(&pool)
+    .await
+    .unwrap();
+    let id2 = res.last_insert_rowid();
+
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/admin/sources/{id2}/refresh"))
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["ok"], serde_json::Value::Bool(false));
+    assert!(
+        v["reason"].as_str().unwrap().contains("parse failed"),
+        "reason must mention parse failure, got {:?}",
+        v["reason"]
+    );
 }

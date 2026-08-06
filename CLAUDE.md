@@ -59,4 +59,4 @@ cd crates/server/web && dx build --web --release   # 前端唯一构建方式
 | WEB_DIST | ./web/dist | 前端静态资源目录（git-ignored symlink → dx 构建产物） |
 | SUB_MERGE_ADMIN_TOKEN | 随机生成 | 预设初始 admin token（仅首次初始化时生效，已部署实例不受影响） |
 
-首次启动日志打印一次随机 token（重启不重复）；部署时用上述 `SUB_MERGE_*_TOKEN` 预设。管理接口一律 `Authorization: Bearer <admin_token>`。
+首次启动日志打印一次随机 token（重启不重复）；部署时用上述 `SUB_MERGE_ADMIN_TOKEN` 预设。管理接口一律 `Authorization: Bearer <admin_token>`。

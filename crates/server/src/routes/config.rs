@@ -61,6 +61,15 @@ async fn rotate_config(
 ) -> Result<Json<ConfigDto>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
     let Json(body) = body.map_err(ApiError::from)?;
+    // 先整体校验、后统一应用：请求非法（rotate 值非法或 combined_name 不合法）时
+    // 不得产生任何副作用（尤其是 rotate 会轮换 admin token）。
+    if let Some(n) = &body.combined_name
+        && !valid_combined_name(n)
+    {
+        return Err(ApiError::bad_request(
+            "combined_name must match [A-Za-z0-9-_]",
+        ));
+    }
     match body.rotate.as_deref() {
         // 订阅 token 已随订阅 token 移除；rotate 仅接受 admin。
         Some("admin") => {
@@ -74,11 +83,6 @@ async fn rotate_config(
         None => {}
     }
     if let Some(n) = &body.combined_name {
-        if !valid_combined_name(n) {
-            return Err(ApiError::bad_request(
-                "combined_name must match [A-Za-z0-9-_]",
-            ));
-        }
         crate::db::set_setting(&state.pool, "combined_name", n).await?;
     }
     Ok(Json(config_dto(&state).await?))
