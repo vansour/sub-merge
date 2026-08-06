@@ -97,7 +97,7 @@ pub fn gen_token() -> String {
     use rand::Rng;
     let mut buf = [0u8; 32];
     rand::rng().fill_bytes(&mut buf);
-    hex::encode(buf)
+    const_hex::encode(buf)
 }
 
 /// settings 表是否已初始化 admin token（用于判断是否首次启动、是否需要打印 token）。

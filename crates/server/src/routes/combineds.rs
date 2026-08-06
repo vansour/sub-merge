@@ -8,6 +8,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct CombinedDto {
@@ -58,27 +59,27 @@ async fn member_ids(state: &AppState, combined_id: i64) -> Result<Vec<i64>, ApiE
     .await?)
 }
 
-/// 插入成员：跳过不存在的源 id（幂等）；PK 冲突用 INSERT OR IGNORE。
-async fn insert_members(
-    state: &AppState,
+/// 批量插入成员：单条 INSERT...SELECT 同时过滤不存在的源（幂等，PK 冲突由 OR IGNORE 处理）。
+/// 在调用方事务内执行（conn 传 &mut tx，自动 deref 到 SqliteConnection）；ids 为空直接返回（DELETE 已清空）。
+async fn insert_members_sql(
+    conn: &mut sqlx::SqliteConnection,
     combined_id: i64,
     source_ids: &[i64],
 ) -> Result<(), ApiError> {
-    for sid in source_ids {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?)")
-            .bind(sid)
-            .fetch_one(&state.pool)
-            .await?;
-        if exists {
-            sqlx::query(
-                "INSERT OR IGNORE INTO combined_sources (combined_id, source_id) VALUES (?, ?)",
-            )
-            .bind(combined_id)
-            .bind(sid)
-            .execute(&state.pool)
-            .await?;
-        }
+    if source_ids.is_empty() {
+        return Ok(());
     }
+    let placeholders = std::iter::repeat_n("?", source_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "INSERT OR IGNORE INTO combined_sources (combined_id, source_id) SELECT ?, id FROM sources WHERE id IN ({placeholders})"
+    )));
+    q = q.bind(combined_id);
+    for sid in source_ids {
+        q = q.bind(sid);
+    }
+    q.execute(conn).await?;
     Ok(())
 }
 
@@ -100,9 +101,24 @@ async fn list_combineds(
         sqlx::query_as("SELECT id, name, created_at FROM combined_subs ORDER BY id")
             .fetch_all(&state.pool)
             .await?;
+    // 成员一次查回并按 combined_id 分组，消除逐组合查询的 N+1
+    let members: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT combined_id, source_id FROM combined_sources ORDER BY combined_id, source_id",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let mut by_combined: HashMap<i64, Vec<i64>> = HashMap::new();
+    for (cid, sid) in members {
+        by_combined.entry(cid).or_default().push(sid);
+    }
     let mut out = Vec::new();
     for (id, name, created_at) in rows {
-        out.push(dto(id, name, created_at, member_ids(&state, id).await?));
+        out.push(dto(
+            id,
+            name,
+            created_at,
+            by_combined.remove(&id).unwrap_or_default(),
+        ));
     }
     Ok(Json(out))
 }
@@ -120,10 +136,12 @@ async fn create_combined(
         ));
     }
     let created_at = chrono::Utc::now().to_rfc3339();
+    // 组合行 + 成员插入同一事务：任一失败整体回滚，不留"孤立组合行"窗口
+    let mut tx = state.pool.begin().await?;
     let res = sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES (?, ?)")
         .bind(&body.name)
         .bind(&created_at)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             if is_unique_violation(&e) {
@@ -133,9 +151,10 @@ async fn create_combined(
             }
         })?;
     let id = res.last_insert_rowid();
+    insert_members_sql(&mut tx, id, &body.source_ids.unwrap_or_default()).await?;
+    tx.commit().await?;
     // 成员插入后从库中读回实际生效的 id：请求里不存在的源 id 被跳过，
     // 响应与列表/更新端点一致（只含真实成员）。
-    insert_members(&state, id, &body.source_ids.unwrap_or_default()).await?;
     let source_ids = member_ids(&state, id).await?;
     Ok((
         axum::http::StatusCode::CREATED,
@@ -195,22 +214,7 @@ async fn update_combined(
             .bind(id)
             .execute(&mut *tx)
             .await?;
-        for sid in ids {
-            let exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?)")
-                    .bind(sid)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            if exists {
-                sqlx::query(
-                    "INSERT OR IGNORE INTO combined_sources (combined_id, source_id) VALUES (?, ?)",
-                )
-                .bind(id)
-                .bind(sid)
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
+        insert_members_sql(&mut tx, id, ids).await?;
         tx.commit().await?;
     }
 

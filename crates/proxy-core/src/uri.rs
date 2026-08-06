@@ -9,19 +9,27 @@ pub fn decode_base64_url(s: &str) -> Result<Vec<u8>, ParseError> {
     if s.len() > MAX_BASE64_LEN {
         return Err(ParseError::InvalidBase64(s.to_string()));
     }
-    let mut t = s.trim().to_string();
-    // 转成标准 alphabet 并补 padding
-    t = t.replace('-', "+").replace('_', "/");
-    // 若输入已带尾部 padding，先去除再按需补齐
-    t = t.trim_end_matches('=').to_string();
-    match t.len() % 4 {
-        2 => t.push_str("=="),
-        3 => t.push('='),
+    let t = s.trim();
+    // 尾部 padding 之前的内容长度（等价于 trim_end_matches('=')，'=' 为 ASCII，
+    // 其起始字节位置必为字符边界，无 UTF-8 截断风险）
+    let end = t.bytes().rposition(|b| b != b'=').map_or(0, |i| i + 1);
+    // 单遍转换：URL-safe 字母表 → standard 字母表（'-'→'+'、'_'→'/'），
+    // 直接写入输出缓冲，消除中间字符串分配
+    let mut buf = Vec::with_capacity(end + 2);
+    buf.extend(t.bytes().take(end).map(|b| match b {
+        b'-' => b'+',
+        b'_' => b'/',
+        b => b,
+    }));
+    // 按需补齐 padding
+    match buf.len() % 4 {
+        2 => buf.extend_from_slice(b"=="),
+        3 => buf.push(b'='),
         1 => return Err(ParseError::InvalidBase64(s.to_string())),
         _ => {}
     }
     base64::engine::general_purpose::STANDARD
-        .decode(t.as_bytes())
+        .decode(&buf)
         .map_err(|_| ParseError::InvalidBase64(s.to_string()))
 }
 

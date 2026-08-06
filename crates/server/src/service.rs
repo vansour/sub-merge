@@ -20,6 +20,7 @@ pub async fn fetch_and_merge(
     state: &AppState,
     source_ids: Option<&[i64]>,
 ) -> (Vec<ProxyNode>, Vec<SourceError>) {
+    let mut errors = Vec::new();
     let sources: Vec<(i64, String, String, String)> = match source_ids {
         Some(ids) if !ids.is_empty() => {
             // 组合成员子集：动态 IN 子句
@@ -32,7 +33,17 @@ pub async fn fetch_and_merge(
             for id in ids {
                 q = q.bind(id);
             }
-            q.fetch_all(&state.pool).await.unwrap_or_default()
+            // 成员查询失败不再静默变空 200：记入源错误列表，由调用方决定 502
+            match q.fetch_all(&state.pool).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    errors.push(SourceError {
+                        source_name: "combined".into(),
+                        reason: format!("member query failed: {e}"),
+                    });
+                    Vec::new()
+                }
+            }
         }
         // 空成员组合：无源可拉
         Some(_) => Vec::new(),
@@ -96,7 +107,6 @@ pub async fn fetch_and_merge(
     }
 
     let mut all_nodes = Vec::new();
-    let mut errors = Vec::new();
     while let Some(res) = set.join_next().await {
         let Ok((name, result)) = res else { continue };
         match result {
