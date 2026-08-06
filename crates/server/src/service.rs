@@ -78,7 +78,14 @@ pub async fn fetch_source(client: &reqwest::Client, url: &str, timeout: Duration
     if !resp.status().is_success() {
         return Err(format!("http status {}", resp.status()));
     }
-    resp.text()
+    const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+    let bytes = resp
+        .bytes()
         .await
-        .map_err(|e| format!("read body failed: {e}"))
+        .map_err(|e| format!("read body failed: {e}"))?;
+    if bytes.len() > MAX_BODY_BYTES {
+        // 超大 body 截断，防止后续 base64 解码/逐行解析内存膨胀
+        return Ok(String::from_utf8_lossy(&bytes[..MAX_BODY_BYTES]).into_owned());
+    }
+    String::from_utf8(bytes.to_vec()).map_err(|_| "body is not valid utf-8".to_string())
 }

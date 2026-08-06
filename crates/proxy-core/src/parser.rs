@@ -53,6 +53,11 @@ fn parse_lines(text: &str, max_nodes: usize) -> (Vec<ProxyNode>, usize) {
         if nodes.len() >= max_nodes {
             break;
         }
+        // 恶意超大行截断（>1MB）：跳过并计数
+        if line.len() > 1024 * 1024 {
+            skipped += 1;
+            continue;
+        }
         match parse_line(line) {
             Ok(n) => nodes.push(n),
             Err(_) => skipped += 1,

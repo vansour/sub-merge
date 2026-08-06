@@ -3,6 +3,11 @@ use crate::error::ParseError;
 
 pub fn decode_base64_url(s: &str) -> Result<Vec<u8>, ParseError> {
     use base64::Engine;
+    // 解码膨胀防护：超过 4MB 的 base64 输入直接拒绝
+    const MAX_BASE64_LEN: usize = 4 * 1024 * 1024;
+    if s.len() > MAX_BASE64_LEN {
+        return Err(ParseError::InvalidBase64(s.to_string()));
+    }
     let mut t = s.trim().to_string();
     // 转成标准 alphabet 并补 padding
     t = t.replace('-', "+").replace('_', "/");
@@ -79,6 +84,13 @@ mod tests {
     #[test]
     fn base64_invalid_returns_error() {
         assert!(decode_base64_url_string("!!!not-base64!!!").is_err());
+    }
+
+    #[test]
+    fn base64_oversized_rejected() {
+        // 长度 %4==0（无 padding 问题）且超 4MB 上限：长度限制必须拒绝
+        let big = "A".repeat(4 * 1024 * 1024 + 4);
+        assert!(decode_base64_url_string(&big).is_err());
     }
 
     #[test]

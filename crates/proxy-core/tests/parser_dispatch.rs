@@ -84,6 +84,16 @@ fn subscription_auto_detects_clash_yaml() {
 }
 
 #[test]
+fn subscription_oversized_line_skipped() {
+    // 单行超过 1MB：跳过并计数，不解析。
+    // 行长必须能被正常解析（明文 userinfo + 大密码），否则失败原因是解析错误而非长度限制。
+    let huge = format!("ss://aes-256-gcm:{}@1.2.3.4:8388#N", "p".repeat(1024 * 1024));
+    let (nodes, skipped) = parse_subscription_text(&huge, 100);
+    assert_eq!(nodes.len(), 0);
+    assert_eq!(skipped, 1);
+}
+
+#[test]
 fn subscription_yaml_respects_max_nodes() {
     let mut yaml = String::from("proxies:\n");
     for i in 0..10 {
