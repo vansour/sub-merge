@@ -8,7 +8,7 @@ PATH := $(HOME)/.cargo/bin:$(PATH)
 # web 是独立 crate（不在 workspace members 内），只能由 dx build 构建，
 # 不能走 cargo build --workspace。
 build-web:
-	cd crates/server/web && (test -e dist || ln -s target/dx/submerge-web/debug/web/public dist); dx build --web
+	cd crates/server/web && ln -sfn target/dx/submerge-web/release/web/public dist; dx build --web --release
 
 # 后端二进制（release）。
 build-server:

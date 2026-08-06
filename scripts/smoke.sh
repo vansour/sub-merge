@@ -40,11 +40,11 @@ SERVER_BIN="$ROOT/target/debug/server"
 [[ -x "$SERVER_BIN" ]] || fail "server 二进制不存在：$SERVER_BIN"
 
 # ---- 1. 构建前端 ----
-step "1/9 dx build --web"
+step "1/9 dx build --web --release"
 (
   cd "$ROOT/crates/server/web"
-  dx build --web
-) || fail "dx build --web 失败"
+  dx build --web --release
+) || fail "dx build --web --release 失败"
 
 WEB_DIST="$ROOT/crates/server/web/dist"
 [[ -f "$WEB_DIST/index.html" ]] || fail "dist/index.html 不存在（WEB_DIST=$WEB_DIST）"
@@ -98,14 +98,19 @@ curl -sf "http://127.0.0.1:$SERVER_PORT/index.html" -o "$TMP_DIR/spa-index.html"
 grep -q "sub-merge" "$TMP_DIR/spa-index.html" || fail "/index.html 未包含 SPA 标题"
 printf 'GET /index.html → 200 OK\n'
 
-curl -sf "http://127.0.0.1:$SERVER_PORT/wasm/submerge-web.js" -o "$TMP_DIR/spa-wasm.js"
-grep -q "wasm" "$TMP_DIR/spa-wasm.js" || fail "/wasm/submerge-web.js 内容异常"
-printf 'GET /wasm/*.js  → 200 OK\n'
+# release 产物带内容 hash：入口脚本与 wasm 路径从 index.html / JS 动态解析
+spa_js="$(grep -o 'src="[^"]*\.js"' "$TMP_DIR/spa-index.html" | head -1 | sed 's/src="//;s/"//' | sed 's|^/\./|/|')"
+[[ -n "$spa_js" ]] || fail "index.html 中未找到入口脚本"
+curl -sf "http://127.0.0.1:$SERVER_PORT$spa_js" -o "$TMP_DIR/spa-wasm.js"
+grep -q "wasm" "$TMP_DIR/spa-wasm.js" || fail "$spa_js 内容异常"
+printf 'GET %s → 200 OK\n' "$spa_js"
 
-curl -sf "http://127.0.0.1:$SERVER_PORT/wasm/submerge-web_bg.wasm" -o "$TMP_DIR/spa-wasm.bin"
+spa_wasm="$(grep -o '/\./assets/[A-Za-z0-9_.-]*\.wasm' "$TMP_DIR/spa-wasm.js" | head -1 | sed 's|^/\./|/|')"
+[[ -n "$spa_wasm" ]] || fail "JS 中未找到 wasm 路径"
+curl -sf "http://127.0.0.1:$SERVER_PORT$spa_wasm" -o "$TMP_DIR/spa-wasm.bin"
 wasm_bytes="$(wc -c < "$TMP_DIR/spa-wasm.bin")"
-[[ "$wasm_bytes" -gt 1000 ]] || fail "/wasm/submerge-web_bg.wasm 内容过小（${wasm_bytes}B）"
-printf 'GET /wasm/*.wasm → 200 OK (%s bytes)\n' "$wasm_bytes"
+[[ "$wasm_bytes" -gt 1000 ]] || fail "$spa_wasm 内容过小（${wasm_bytes}B）"
+printf 'GET %s → 200 OK (%s bytes)\n' "$spa_wasm" "$wasm_bytes"
 
 # ---- 5. 管理接口（login 用同一 Bearer 校验）----
 step "5/9 管理接口 /api/admin/config"

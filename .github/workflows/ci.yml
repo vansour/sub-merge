@@ -41,8 +41,8 @@ jobs:
       - name: build web
         working-directory: crates/server/web
         run: |
-          dx build --web
-          test -d target/dx/submerge-web/debug/web/public || exit 1
+          dx build --web --release
+          test -d target/dx/submerge-web/release/web/public || exit 1
 
   docker:
     name: docker build
