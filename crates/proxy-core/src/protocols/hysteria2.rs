@@ -69,16 +69,22 @@ pub fn serialize_hysteria2(node: &ProxyNode) -> Result<String, SerializeError> {
         node.server,
         node.port
     );
+    // 查询参数条件组装：任一参数存在时先写 '?'，参数间用 '&' 连接
+    let mut query: Vec<String> = Vec::new();
     if let Some(t) = &node.tls {
         if let Some(s) = &t.sni {
-            out.push_str(&format!("?sni={}", encode(s)));
+            query.push(format!("sni={}", encode(s)));
         }
         if let Some(a) = t.alpn.first() {
-            out.push_str(&format!("&alpn={}", encode(a)));
+            query.push(format!("alpn={}", encode(a)));
         }
         if t.insecure {
-            out.push_str("&insecure=1");
+            query.push("insecure=1".into());
         }
+    }
+    if !query.is_empty() {
+        out.push('?');
+        out.push_str(&query.join("&"));
     }
     if !node.name.is_empty() {
         out.push('#');
