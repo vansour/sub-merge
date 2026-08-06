@@ -116,28 +116,34 @@ pub fn serialize_trojan(node: &ProxyNode) -> Result<String, SerializeError> {
         }
         _ => ("tcp", String::new(), String::new()),
     };
+    // 查询参数条件组装：任一参数存在时先写 '?'，参数间用 '&' 连接
+    let mut query: Vec<String> = Vec::new();
     if let Some(t) = &node.tls {
         if t.enabled {
-            out.push_str("?security=tls");
+            query.push("security=tls".into());
         }
         if let Some(s) = &t.sni {
-            out.push_str(&format!("&sni={}", encode(s)));
+            query.push(format!("sni={}", encode(s)));
         }
         if let Some(fp) = &t.fingerprint {
-            out.push_str(&format!("&fp={}", encode(fp)));
+            query.push(format!("fp={}", encode(fp)));
         }
         if !t.alpn.is_empty() {
-            out.push_str(&format!("&alpn={}", encode(&t.alpn.join(","))));
+            query.push(format!("alpn={}", encode(&t.alpn.join(","))));
         }
     }
     if net != "tcp" {
-        out.push_str(&format!("&type={}", net));
+        query.push(format!("type={}", net));
     }
     if !host.is_empty() {
-        out.push_str(&format!("&host={}", encode(&host)));
+        query.push(format!("host={}", encode(&host)));
     }
     if !path.is_empty() {
-        out.push_str(&format!("&path={}", encode(&path)));
+        query.push(format!("path={}", encode(&path)));
+    }
+    if !query.is_empty() {
+        out.push('?');
+        out.push_str(&query.join("&"));
     }
     if !node.name.is_empty() {
         out.push('#');

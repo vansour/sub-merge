@@ -54,3 +54,21 @@ fn trojan_httpupgrade_roundtrip() {
 fn trojan_invalid() {
     assert!(parse_trojan("trojan://").is_err());
 }
+
+#[test]
+fn trojan_serialize_transport_without_tls_emits_valid_query() {
+    // security=none（显式关闭 TLS）+ ws 传输：query 必须以 ? 开头（回归：缺 ? 产出非法 URI）
+    let n = parse_trojan(
+        "trojan://pass@1.2.3.4:443?security=none&type=ws&path=%2Fws&host=cdn.example.com#T",
+    )
+    .unwrap();
+    assert!(n.tls.is_none());
+    assert!(n.transport.as_ref().and_then(|t| t.websocket.as_ref()).is_some());
+    let out = serialize_trojan(&n).unwrap();
+    assert!(out.contains("?type=ws"), "query must start with '?': {out}");
+    assert!(out.contains("&host=cdn.example.com"), "params joined with &: {out}");
+    let n2 = parse_trojan(&out).unwrap();
+    assert_eq!(n2.port, 443);
+    let ws = n2.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
+    assert_eq!(ws.path, "/ws");
+}
