@@ -65,6 +65,17 @@ pub fn gen_token() -> String {
     hex::encode(buf)
 }
 
+/// settings 表是否已初始化两个 token（用于判断是否首次启动、是否需要打印 token）。
+pub async fn tokens_initialized(pool: &SqlitePool) -> Result<bool> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS n FROM settings WHERE key IN ('subscribe_token', 'admin_token')",
+    )
+    .fetch_one(pool)
+    .await?;
+    let n: i64 = row.get(0);
+    Ok(n >= 2)
+}
+
 /// 环境变量预设的初始 token（仅首次初始化时使用）。
 /// 已部署实例的 token 稳定：settings 表已有值时环境变量不生效。
 pub async fn ensure_tokens(pool: &SqlitePool) -> Result<(String, String)> {

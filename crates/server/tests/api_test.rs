@@ -80,6 +80,24 @@ async fn env_preset_tokens_used_only_on_first_init() {
 }
 
 #[tokio::test]
+async fn tokens_initialized_reflects_first_init() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-tok-init", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+
+    // 全新 DB：未初始化
+    assert!(!server::db::tokens_initialized(&pool).await.unwrap());
+
+    // ensure_tokens 后：已初始化
+    server::db::ensure_tokens(&pool).await.unwrap();
+    assert!(server::db::tokens_initialized(&pool).await.unwrap());
+
+    // 重启幂等：再次调用仍是已初始化（不触发首次打印）
+    server::db::ensure_tokens(&pool).await.unwrap();
+    assert!(server::db::tokens_initialized(&pool).await.unwrap());
+}
+
+#[tokio::test]
 async fn unknown_route_returns_404() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-router", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();

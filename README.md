@@ -20,14 +20,14 @@ make run          # 构建前端并启动（首次运行自动建库并生成 to
 默认监听 `:8080`。管理 token 的获取方式：
 
 ```bash
-# 方式 1：部署时用环境变量预设初始 token（推荐，可控可管理）
+# 方式 1：首次启动日志直接可见（仅首次打印一次，重启不重复）
+docker compose up -d --build && docker compose logs | grep token
+
+# 方式 2：部署时用环境变量预设初始 token（可控可管理）
 SUB_MERGE_ADMIN_TOKEN=your-admin-token SUB_MERGE_SUBSCRIBE_TOKEN=your-sub-token make run
 
-# 方式 2：首次启动后查库（compose bind mount 场景）
+# 方式 3：查库（compose bind mount 场景）
 python3 -c "import sqlite3; db=sqlite3.connect('submerge-data/submerge.db'); [print(k,'=',v) for k,v in db.execute('SELECT key,value FROM settings')]"
-
-# 方式 3：debug 日志（token 仅 debug 级别输出，防公网日志泄漏）
-RUST_LOG=debug make run
 ```
 
 浏览器打开 `http://<host>:8080`，输入管理 token 进入管理界面。
