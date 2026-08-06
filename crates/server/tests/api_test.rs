@@ -1082,3 +1082,191 @@ async fn legacy_db_without_kind_column_is_migrated() {
         .unwrap();
     assert_eq!(kind, "remote");
 }
+
+#[tokio::test]
+async fn single_source_parses_without_network() {
+    // single 源指向一个无法连通的地址（127.0.0.1:1）；若代码误发请求必然失败进错误列表，
+    // 正确实现（直接解析）则节点正常出现。
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-single", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let state = server::state::AppState::new(pool, cfg, admin);
+
+    // remote 源：正常 mock
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#REMOTE\n"),
+        )
+        .mount(&mock)
+        .await;
+    let url = format!("{}/sub", mock.uri());
+    sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind(&url)
+    .bind("remote-src")
+    .bind("remote")
+    .bind("now")
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    // single 源：服务器地址 127.0.0.1:1（连接必然失败），若被 fetch 则产生源错误
+    sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#SINGLE")
+    .bind("single-src")
+    .bind("single")
+    .bind("now")
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let (nodes, errors) = server::service::fetch_and_merge(&state).await;
+    assert!(
+        errors.is_empty(),
+        "expected no source errors, got {errors:?}"
+    );
+    assert_eq!(nodes.len(), 2);
+    assert!(
+        nodes.iter().any(|n| n.name == "SINGLE"),
+        "single node must be parsed"
+    );
+    assert!(nodes.iter().any(|n| n.name == "REMOTE"));
+}
+
+#[tokio::test]
+async fn invalid_single_source_reports_source_error() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-single-bad", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let state = server::state::AppState::new(pool, cfg, admin);
+
+    sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind("this is not a node uri")
+    .bind("bad-src")
+    .bind("single")
+    .bind("now")
+    .execute(&state.pool)
+    .await
+    .unwrap();
+
+    let (nodes, errors) = server::service::fetch_and_merge(&state).await;
+    assert!(nodes.is_empty());
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].source_name, "bad-src");
+    assert!(
+        errors[0].reason.contains("parse failed"),
+        "reason: {}",
+        errors[0].reason
+    );
+}
+
+#[tokio::test]
+async fn admin_crud_respects_kind() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-kind", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
+        req
+    };
+
+    // 创建 kind=single 源 → 响应与列表都带 kind
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/sources")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"url": "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S", "name": "s1", "kind": "single"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["kind"], "single");
+    let id = v["id"].as_i64().unwrap();
+
+    // 不传 kind → 默认 remote
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/sources")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"url": "https://x/sub", "name": "s2"}).to_string(),
+                ))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["kind"], "remote");
+
+    // 非法 kind → 400
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/sources")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"url": "https://x/sub", "name": "s3", "kind": "bogus"}).to_string(),
+                ))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // PUT 改 kind
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/admin/sources/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"kind": "remote"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["kind"], "remote");
+}

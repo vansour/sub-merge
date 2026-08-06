@@ -13,6 +13,7 @@ pub struct SourceDto {
     pub id: i64,
     pub url: String,
     pub name: String,
+    pub kind: String,
     pub enabled: bool,
     pub created_at: String,
 }
@@ -21,12 +22,14 @@ pub struct SourceDto {
 pub struct CreateSource {
     pub url: String,
     pub name: String,
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateSource {
     pub url: Option<String>,
     pub name: Option<String>,
+    pub kind: Option<String>,
     pub enabled: Option<bool>,
 }
 
@@ -46,7 +49,7 @@ async fn list_sources(
 ) -> Result<Json<Vec<SourceDto>>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
     let rows = sqlx::query_as::<_, SourceDto>(
-        "SELECT id, url, name, enabled, created_at FROM sources ORDER BY id",
+        "SELECT id, url, name, kind, enabled, created_at FROM sources ORDER BY id",
     )
     .fetch_all(&state.pool)
     .await?;
@@ -63,19 +66,26 @@ async fn create_source(
     if body.url.is_empty() || body.name.is_empty() {
         return Err(ApiError::bad_request("url and name required"));
     }
+    let kind = body.kind.clone().unwrap_or_else(|| "remote".to_string());
+    if !matches!(kind.as_str(), "single" | "remote") {
+        return Err(ApiError::bad_request("kind must be 'single' or 'remote'"));
+    }
     let created_at = chrono::Utc::now().to_rfc3339(); // 或手写时间
-    let res =
-        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-            .bind(&body.url)
-            .bind(&body.name)
-            .bind(&created_at)
-            .execute(&state.pool)
-            .await?;
+    let res = sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind(&body.url)
+    .bind(&body.name)
+    .bind(&kind)
+    .bind(&created_at)
+    .execute(&state.pool)
+    .await?;
     let id = res.last_insert_rowid();
     let dto = SourceDto {
         id,
         url: body.url,
         name: body.name,
+        kind,
         enabled: true,
         created_at,
     };
@@ -93,7 +103,7 @@ async fn update_source(
     let Json(body) = body.map_err(ApiError::from)?;
     // 先取现有
     let existing = sqlx::query_as::<_, SourceDto>(
-        "SELECT id, url, name, enabled, created_at FROM sources WHERE id = ?",
+        "SELECT id, url, name, kind, enabled, created_at FROM sources WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -102,11 +112,16 @@ async fn update_source(
 
     let url = body.url.clone().unwrap_or(existing.url.clone());
     let name = body.name.clone().unwrap_or(existing.name.clone());
+    let kind = body.kind.clone().unwrap_or(existing.kind.clone());
+    if !matches!(kind.as_str(), "single" | "remote") {
+        return Err(ApiError::bad_request("kind must be 'single' or 'remote'"));
+    }
     let enabled = body.enabled.unwrap_or(existing.enabled);
 
-    sqlx::query("UPDATE sources SET url = ?, name = ?, enabled = ? WHERE id = ?")
+    sqlx::query("UPDATE sources SET url = ?, name = ?, kind = ?, enabled = ? WHERE id = ?")
         .bind(&url)
         .bind(&name)
+        .bind(&kind)
         .bind(enabled)
         .bind(id)
         .execute(&state.pool)
@@ -116,6 +131,7 @@ async fn update_source(
         id,
         url,
         name,
+        kind,
         enabled,
         created_at: existing.created_at,
     };
@@ -148,13 +164,28 @@ async fn refresh_source(
     let Path(id) = id.map_err(ApiError::from)?;
     // 实时拉取模式下，refresh 即对该源重新抓取并报告结果
     let source = sqlx::query_as::<_, SourceDto>(
-        "SELECT id, url, name, enabled, created_at FROM sources WHERE id = ?",
+        "SELECT id, url, name, kind, enabled, created_at FROM sources WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| ApiError::not_found("source not found"))?;
 
+    // 单条节点：本地重解析，不拉网络
+    if source.kind == "single" {
+        return match proxy_core::parser::parse_line(&source.url) {
+            Ok(_) => Ok(Json(serde_json::json!({
+                "source": source.name,
+                "ok": true,
+                "node_count": 1,
+            }))),
+            Err(e) => Ok(Json(serde_json::json!({
+                "source": source.name,
+                "ok": false,
+                "reason": format!("parse failed: {e}"),
+            }))),
+        };
+    }
     let result = crate::service::fetch_source(
         &state.http,
         &source.url,

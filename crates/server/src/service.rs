@@ -17,8 +17,8 @@ pub struct SourceError {
 /// 并发拉取全部 enabled 源（受 cfg.concurrency 上限约束），解析合并。
 /// 返回 (节点, 错误源列表)。
 pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceError>) {
-    let sources: Vec<(i64, String, String)> =
-        sqlx::query("SELECT id, name, url FROM sources WHERE enabled = 1")
+    let sources: Vec<(i64, String, String, String)> =
+        sqlx::query("SELECT id, kind, name, url FROM sources WHERE enabled = 1")
             .fetch_all(&state.pool)
             .await
             .unwrap_or_default()
@@ -28,6 +28,7 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
                     r.get::<i64, _>(0),
                     r.get::<String, _>(1),
                     r.get::<String, _>(2),
+                    r.get::<String, _>(3),
                 )
             })
             .collect();
@@ -39,7 +40,7 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
     let semaphore = Arc::new(Semaphore::new(cap));
 
     let mut set = JoinSet::new();
-    for (_, name, url) in sources {
+    for (_, kind, name, url) in sources {
         // spawn 前获取信号量许可：同一时刻最多 cap 个源并发拉取。
         let Ok(permit) = semaphore.clone().acquire_owned().await else {
             continue; // 信号量被关闭，跳过该源
@@ -47,18 +48,26 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
         let client = client.clone();
         set.spawn(async move {
             let _permit = permit; // 任务期间持有许可
-            match fetch_source(&client, &url, timeout).await {
-                Ok(text) => {
-                    let (nodes, skipped) = parse_subscription_text(&text, max_nodes);
-                    if nodes.is_empty() {
-                        (
-                            name,
-                            Err(format!("no nodes parsed ({} line(s) skipped)", skipped)),
-                        )
-                    } else {
-                        (name, Ok(nodes))
+            let result = if kind == "single" {
+                // 单条节点：直接解析，不发起网络请求
+                proxy_core::parser::parse_line(&url)
+                    .map(|n| vec![n])
+                    .map_err(|e| format!("parse failed: {e}"))
+            } else {
+                match fetch_source(&client, &url, timeout).await {
+                    Ok(text) => {
+                        let (nodes, skipped) = parse_subscription_text(&text, max_nodes);
+                        if nodes.is_empty() {
+                            Err(format!("no nodes parsed ({} line(s) skipped)", skipped))
+                        } else {
+                            Ok(nodes)
+                        }
                     }
+                    Err(reason) => Err(reason),
                 }
+            };
+            match result {
+                Ok(nodes) => (name, Ok(nodes)),
                 Err(reason) => (name, Err(reason)),
             }
         });
