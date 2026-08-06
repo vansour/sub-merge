@@ -1,6 +1,8 @@
 // crates/server/web/src/components/preview.rs
 // 转换预览：节点表（协议彩色徽章）+ 源错误警告卡片。
+// 页头下拉选择「全部源 / 各组合」（请求 /admin/preview?combined=<名称> 过滤）。
 use crate::api::request;
+use crate::components::combineds::{CombinedDto, fetch_combineds};
 use crate::components::icon::{icon, Spinner};
 use dioxus::prelude::*;
 use serde::Deserialize;
@@ -37,28 +39,13 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
     let data = use_signal(|| None::<PreviewResp>);
     let loading = use_signal(|| false);
     let error = use_signal(String::new);
+    let combineds = use_signal(Vec::<CombinedDto>::new);
+    // None = 全部源；Some(名称) = 按组合过滤。
+    let mut selected = use_signal(|| None::<String>);
 
-    // 初次挂载加载一次。
-    use_future(move || {
-        let token = token.read().clone();
-        let mut data = data;
-        let mut loading = loading;
-        let mut error = error;
-        async move {
-            loading.set(true);
-            error.set(String::new());
-            match request("GET", "/admin/preview", None, token.as_deref()).await {
-                Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
-                    Ok(r) => data.set(Some(r)),
-                    Err(e) => error.set(format!("解析失败: {}", e)),
-                },
-                Err(e) => error.set(e.to_string()),
-            }
-            loading.set(false);
-        }
-    });
-
-    let reload = move |_| {
+    // 抽取的预览加载逻辑：use_future 初始加载、刷新按钮、下拉切换三处共用。
+    // use_callback 保持跨渲染稳定，闭包内只读 token/写 data/loading/error 信号。
+    let load_preview = use_callback(move |selected: Option<String>| {
         let token = token.read().clone();
         let mut data = data.clone();
         let mut loading = loading.clone();
@@ -66,7 +53,11 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         spawn(async move {
             loading.set(true);
             error.set(String::new());
-            match request("GET", "/admin/preview", None, token.as_deref()).await {
+            let path = match &selected {
+                Some(name) => format!("/admin/preview?combined={}", name),
+                None => "/admin/preview".to_string(),
+            };
+            match request("GET", &path, None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
                     Ok(r) => data.set(Some(r)),
                     Err(e) => error.set(format!("解析失败: {}", e)),
@@ -75,6 +66,24 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
             }
             loading.set(false);
         });
+    });
+
+    // 初次挂载：并行加载组合列表（下拉选项）与初始预览（全部源）。
+    use_future(move || {
+        load_preview(None);
+        let token = token.read().clone();
+        let mut combineds = combineds;
+        let mut error = error;
+        async move {
+            match fetch_combineds(token.as_deref()).await {
+                Ok(list) => combineds.set(list),
+                Err(e) => error.set(e),
+            }
+        }
+    });
+
+    let reload = move |_| {
+        load_preview(selected.read().clone());
     };
 
     let resp = data.read().clone();
@@ -116,9 +125,34 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         })
         .unwrap_or_default();
 
+    // 下拉选项（预渲染，与行/成员行同模式）。selected 属性与当前选择比对。
+    let combined_options: Vec<Element> = combineds
+        .read()
+        .iter()
+        .map(|c| {
+            let name = c.name.clone();
+            let is_selected = selected.read().as_deref() == Some(name.as_str());
+            rsx! {
+                option { value: name.clone(), selected: is_selected, "{name}" }
+            }
+        })
+        .collect();
+
     rsx! {
         div { class: "page-head",
             h1 { class: "page-title", "转换预览" }
+            select {
+                class: "preview-filter",
+                value: selected.read().clone().unwrap_or_default(),
+                onchange: move |e| {
+                    let v = e.value();
+                    let v = if v.is_empty() { None } else { Some(v) };
+                    selected.set(v.clone());
+                    load_preview(v);
+                },
+                option { value: "", "全部源" }
+                {combined_options.into_iter()}
+            }
             if let Some(r) = resp.as_ref() {
                 span { class: "badge on", "共 {r.total} 个节点" }
             }
