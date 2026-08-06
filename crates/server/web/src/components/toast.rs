@@ -49,7 +49,7 @@ pub(crate) fn schedule_timeout(ms: u32, f: impl FnOnce() + 'static) {
 }
 
 #[component]
-pub fn ToastProvider() -> Element {
+pub fn ToastProvider(children: Element) -> Element {
     let toasts = use_context_provider(|| Signal::new(Vec::<ToastMsg>::new()));
     let items = toasts.read().clone();
     rsx! {
@@ -58,6 +58,7 @@ pub fn ToastProvider() -> Element {
                 ToastCard { toasts, t }
             }
         }
+        {children}
     }
 }
 
