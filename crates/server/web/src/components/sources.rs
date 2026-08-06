@@ -15,6 +15,11 @@ pub struct SourceDto {
     pub created_at: String,
 }
 
+pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
+    let body = request("GET", "/api/admin/sources", None, token).await?;
+    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
+}
+
 #[component]
 pub fn Sources(token: Signal<Option<String>>) -> Element {
     let sources = use_signal(Vec::<SourceDto>::new);
