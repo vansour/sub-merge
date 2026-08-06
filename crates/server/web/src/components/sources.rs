@@ -94,10 +94,12 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             match request("PUT", &format!("/api/admin/sources/{id}"), Some(body), token.as_deref()).await {
                 Ok(_) => {
                     match fetch_sources(token.as_deref()).await {
-                        Ok(list) => sources.set(list),
+                        Ok(list) => {
+                            sources.set(list);
+                            push_toast(toasts, ToastKind::Info, if enabled { "已停用" } else { "已启用" });
+                        }
                         Err(e) => error.set(e),
                     }
-                    push_toast(toasts, ToastKind::Info, if enabled { "已停用" } else { "已启用" });
                 }
                 Err(e) => push_toast(toasts, ToastKind::Error, format!("操作失败: {e}")),
             }
@@ -165,10 +167,12 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                 match request("DELETE", &format!("/api/admin/sources/{id}"), None, token.as_deref()).await {
                     Ok(_) => {
                         match fetch_sources(token.as_deref()).await {
-                            Ok(list) => sources.set(list),
+                            Ok(list) => {
+                                sources.set(list);
+                                push_toast(toasts, ToastKind::Success, "已删除");
+                            }
                             Err(e) => error.set(e),
                         }
-                        push_toast(toasts, ToastKind::Success, "已删除");
                     }
                     Err(e) => push_toast(toasts, ToastKind::Error, format!("删除失败: {e}")),
                 }

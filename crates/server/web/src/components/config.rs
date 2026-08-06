@@ -22,13 +22,11 @@ pub struct ConfigDto {
 //   Navigator::clipboard() -> Clipboard（直接返回，非 Result）
 //   Clipboard::write_text(&str) -> js_sys::Promise（用 JsFuture await）
 //   Window::location() -> Location；Location::href() -> Result<String, JsValue>
-fn copy_text(text: String) {
-    if let Some(nav) = web_sys::window().map(|w| w.navigator()) {
-        let clip = nav.clipboard();
-        spawn(async move {
-            let _ = JsFuture::from(clip.write_text(&text)).await;
-        });
-    }
+async fn copy_text(text: String) -> Result<(), String> {
+    let nav = web_sys::window().map(|w| w.navigator()).ok_or("无窗口")?;
+    let clip = nav.clipboard();
+    JsFuture::from(clip.write_text(&text)).await.map_err(|e| format!("{:?}", e))?;
+    Ok(())
 }
 
 #[component]
@@ -109,16 +107,23 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         }
     });
 
-    let mut copy_click = move |label: &'static str, link: String| {
-        copy_text(link);
-        copied.set(Some(label));
-        let mut toasts = toasts.clone();
-        push_toast(toasts, ToastKind::Success, "已复制到剪贴板");
+    let copy_click = move |label: &'static str, link: String| {
         let mut copied = copied.clone();
-        // 按 label 门控：2s 内复制了其他行时，不清掉那行的"已复制"反馈。
-        schedule_timeout(2000, move || {
-            if *copied.read() == Some(label) {
-                copied.set(None);
+        let toasts = toasts.clone();
+        spawn(async move {
+            match copy_text(link).await {
+                Ok(()) => {
+                    copied.set(Some(label));
+                    push_toast(toasts, ToastKind::Success, "已复制到剪贴板");
+                    // 按 label 门控：2s 内复制了其他行时，不清掉那行的"已复制"反馈。
+                    // 仅成功时调度 revert 定时器：复制失败则按钮不翻转为"已复制"。
+                    schedule_timeout(2000, move || {
+                        if *copied.read() == Some(label) {
+                            copied.set(None);
+                        }
+                    });
+                }
+                Err(e) => push_toast(toasts, ToastKind::Error, format!("复制失败: {e}")),
             }
         });
     };
