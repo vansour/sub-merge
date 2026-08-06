@@ -41,7 +41,8 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let mut saving = use_signal(|| false);
     let mut confirm = use_signal(ConfirmState::default);
     let mut pending_id = use_signal(|| None::<i64>);
-    let mut copied = use_signal(|| None::<String>);
+    // 复制反馈按 (组合名, 格式) 键控：复制某一格式只翻转该按钮
+    let mut copied = use_signal(|| None::<(String, String)>);
     let toasts = use_toast();
 
     // 初次挂载加载组合与源列表
@@ -191,19 +192,19 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         }
     });
 
-    // 链接复制（label 门控反馈，与 config 页一致）
-    let copy_click = move |label: &str, link: String| {
-        let label = label.to_string();
+    // 链接复制（(name, format) 门控反馈：复制某格式只翻转对应按钮）
+    let copy_click = move |name: String, fmt: &str, link: String| {
+        let key = (name, fmt.to_string());
         let mut copied = copied.clone();
         let toasts = toasts.clone();
         spawn(async move {
             match copy_text(link).await {
                 Ok(()) => {
-                    copied.set(Some(label.clone()));
+                    copied.set(Some(key.clone()));
                     push_toast(toasts, ToastKind::Success, "已复制到剪贴板");
                     let mut copied2 = copied.clone();
                     schedule_timeout(2000, move || {
-                        if *copied2.read() == Some(label.clone()) {
+                        if copied2.read().as_ref() == Some(&key) {
                             copied2.set(None);
                         }
                     });
@@ -252,7 +253,6 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             let base = web_sys::window()
                 .and_then(|w| w.location().origin().ok())
                 .unwrap_or_default();
-            let is_copied = copied.read().as_deref().map(|x| x == name).unwrap_or(false);
             // 三种格式的链接按钮（预渲染，与行/成员行同模式）。
             // 订阅链接在 rsx 外拼装：rsx 内嵌 format! 的 {} 会被误判为插值（见 config.rs）。
             // move 闭包按值捕获 name，map 内逐次 clone，避免首轮即 move 掉外层 String。
@@ -261,10 +261,12 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                 .map(|fmt| {
                     let link = format!("{}/subscribe/{}?format={}", base, name, fmt);
                     let name = name.clone();
+                    let is_copied =
+                        copied.read().as_ref() == Some(&(name.clone(), fmt.to_string()));
                     rsx! {
                         button {
                             class: format!("btn btn-ghost btn-sm{}", if is_copied { " checked" } else { "" }),
-                            onclick: move |_| copy_click(&name, link.clone()),
+                            onclick: move |_| copy_click(name.clone(), fmt, link.clone()),
                             "{fmt}"
                         }
                     }

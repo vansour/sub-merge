@@ -1785,3 +1785,67 @@ async fn preview_combined_filter() {
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["total"], 1);
 }
+
+#[tokio::test]
+async fn combined_subscription_all_members_failed_returns_502() {
+    // 组合的全部成员源都拉取失败（remote 源指向必然拒绝连接的地址）→ 502 附错误明细。
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-combined-502", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+
+    // remote 源：127.0.0.1:1 连接被立即拒绝，fetch_source 报错 → SourceError
+    let res = sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind("http://127.0.0.1:1/sub")
+    .bind("dead-src")
+    .bind("remote")
+    .bind("now")
+    .execute(&pool)
+    .await
+    .unwrap();
+    let src_id = res.last_insert_rowid();
+
+    // 建组合勾选该源
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'grp'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(src_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/subscribe/grp?format=clash")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["error"]["code"], "bad_gateway");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("dead-src"),
+        "error detail must name the failed source, got: {msg}"
+    );
+}
