@@ -7,6 +7,7 @@ use crate::components::sources::{SourceDto, fetch_sources};
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
 use dioxus::prelude::*;
 use serde::Deserialize;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CombinedDto {
@@ -29,7 +30,7 @@ struct FormState {
     open: bool,
     edit_id: Option<i64>,
     name: String,
-    checked: Vec<i64>,
+    checked: HashSet<i64>,
 }
 
 #[component]
@@ -70,7 +71,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             open: true,
             edit_id: None,
             name: String::new(),
-            checked: Vec::new(),
+            checked: HashSet::new(),
         });
     };
 
@@ -82,18 +83,18 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                 open: true,
                 edit_id: Some(id),
                 name: c.name,
-                checked: c.source_ids,
+                checked: c.source_ids.iter().copied().collect(),
             });
         }
     };
 
-    // 勾选切换
+    // 勾选切换（HashSet 的 contains/remove/insert 均为 O(1)）
     let mut toggle_member = move |sid: i64| {
         let mut f = form.read().clone();
-        if let Some(pos) = f.checked.iter().position(|x| *x == sid) {
-            f.checked.remove(pos);
+        if f.checked.contains(&sid) {
+            f.checked.remove(&sid);
         } else {
-            f.checked.push(sid);
+            f.checked.insert(sid);
         }
         form.set(f);
     };
