@@ -1,6 +1,6 @@
 # sub-merge 硬化实施计划（输出有效性 / 输入支持 / 工程化）
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 修复输出结构无效问题（hy2/trojan 非法 URI、trojan 无 TLS、Clash YAML 引号）、接入 Clash YAML 订阅输入与超大输入截断、wireguard 单节点失败降级、`/api` 防护补丁，并完成 README/CI/测试增强。
 
@@ -30,7 +30,7 @@
 - Consumes: `serialize_hysteria2(node: &ProxyNode) -> Result<String, SerializeError>`（现有签名不变）
 - Produces: 无新接口；修复后任何输入都产出可被 `parse_hysteria2` 再解析的 URI
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/proxy-core/tests/protocol_hysteria2.rs` 追加：
 
@@ -52,12 +52,12 @@ fn hysteria2_serialize_without_sni_emits_valid_query() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p proxy-core --test protocol_hysteria2`
 Expected: FAIL — `out` 为 `hysteria2://pass@1.2.3.4:8443&alpn=h3&insecure=1#T`，`contains("?alpn=h3")` 断言失败
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `serialize_hysteria2` 的 TLS 段改为条件组装：
 
@@ -83,12 +83,12 @@ Expected: FAIL — `out` 为 `hysteria2://pass@1.2.3.4:8443&alpn=h3&insecure=1#T
 
 即把原 `if let Some(s) = &t.sni { out.push_str(&format!("?sni={}", ...)) }` / `&alpn=` / `&insecure=` 三处替换为上面代码。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p proxy-core --test protocol_hysteria2`
 Expected: PASS（5 个测试，含新测试）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/protocols/hysteria2.rs crates/proxy-core/tests/protocol_hysteria2.rs
@@ -107,7 +107,7 @@ git commit -m "fix(proxy-core): hysteria2 serializer emits valid '?'-prefixed qu
 - Consumes: `serialize_trojan(node: &ProxyNode) -> Result<String, SerializeError>`（现有签名不变）
 - Produces: 无新接口；修复后无 TLS 但有传输层的 trojan 节点产出可解析 URI
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/proxy-core/tests/protocol_trojan.rs` 追加：
 
@@ -131,12 +131,12 @@ fn trojan_serialize_transport_without_tls_emits_valid_query() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p proxy-core --test protocol_trojan`
 Expected: FAIL — `out` 为 `trojan://pass@1.2.3.4:443&type=ws&host=cdn.example.com&path=%2Fws`，断言失败
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `serialize_trojan` 中从 `if let Some(t) = &node.tls {` 到 `path` 拼接段整体替换为条件组装：
 
@@ -173,12 +173,12 @@ Expected: FAIL — `out` 为 `trojan://pass@1.2.3.4:443&type=ws&host=cdn.example
 
 （原代码为：`if let Some(t) = &node.tls { if t.enabled { out.push_str("?security=tls"); } ... }` 后跟无条件 `&type=`/`&host=`/`&path=` 拼接。）
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p proxy-core --test protocol_trojan`
 Expected: PASS（5 个测试，含新测试）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/protocols/trojan.rs crates/proxy-core/tests/protocol_trojan.rs
@@ -197,7 +197,7 @@ git commit -m "fix(proxy-core): trojan serializer emits valid '?'-prefixed query
 - Consumes: `parse_trojan(uri: &str) -> Result<ProxyNode, ParseError>`（现有签名不变）
 - Produces: 无新接口；行为变更——trojan 协议强制 TLS，仅当 `security=none` 显式出现时 tls 为 None
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/proxy-core/tests/protocol_trojan.rs` 追加：
 
@@ -214,12 +214,12 @@ fn trojan_defaults_to_tls_without_security_param() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p proxy-core --test protocol_trojan`
 Expected: FAIL — `n.tls.expect(...)` panic（无 security 参数时 tls 为 None）
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `parse_trojan` 中：
 
@@ -239,12 +239,12 @@ Expected: FAIL — `n.tls.expect(...)` panic（无 security 参数时 tls 为 No
 
 （原代码为 `if matches!(security.as_str(), "tls" | "reality" | "xtls") { Some(...) } else { None }`。与 `parse_clash_yaml` 中 trojan 始终 TLS 的语义对齐。）
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p proxy-core --test protocol_trojan` 然后 `cargo test -p proxy-core`
 Expected: 全部 PASS（含 roundtrip 中 trojan 用例——输入均带 security=tls，行为不变）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/protocols/trojan.rs crates/proxy-core/tests/protocol_trojan.rs
@@ -263,7 +263,7 @@ git commit -m "fix(proxy-core): trojan defaults to TLS when security param absen
 - Consumes: `clash_yaml_str(s: &str) -> String`（内部函数，签名不变）
 - Produces: 无新接口；任何节点名/密码都产出合法 YAML 标量
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/proxy-core/tests/formats.rs` 追加：
 
@@ -293,12 +293,12 @@ fn clash_yaml_quotes_hostile_names() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p proxy-core --test formats`
 Expected: FAIL — `!secret` / `*alias` 等产出非法 YAML（serde_yaml::from_str 报 tag/alias 错误），或 name 不相等
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `clash_yaml_str` 替换为：
 
@@ -317,12 +317,12 @@ fn clash_yaml_str(s: &str) -> String {
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p proxy-core --test formats` 然后 `cargo test -p proxy-core`
 Expected: 全部 PASS（原 `clash_yaml_has_proxies_and_groups` 等用例不变——普通名字走安全路径）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/formats/clash.rs crates/proxy-core/tests/formats.rs
@@ -341,7 +341,7 @@ git commit -m "fix(proxy-core): clash yaml scalar quoting via serde_yaml for hos
 - Consumes: `parse_clash_yaml(text: &str) -> Result<Vec<ProxyNode>, ParseError>`（parser.rs:79，已有）、`parse_lines(text, max_nodes)`（已有）
 - Produces: `parse_subscription_text(text: &str, max_nodes: usize) -> (Vec<ProxyNode>, usize)` 行为扩展——检测到行首 `proxies:` 时走 YAML 解析
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/proxy-core/tests/parser_dispatch.rs` 追加：
 
@@ -370,12 +370,12 @@ fn subscription_yaml_respects_max_nodes() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p proxy-core --test parser_dispatch`
 Expected: FAIL — 目前 YAML 文本逐行解析得到 0 节点
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `parse_subscription_text` 在 base64 检测之前插入 YAML 检测：
 
@@ -405,12 +405,12 @@ pub fn parse_subscription_text(text: &str, max_nodes: usize) -> (Vec<ProxyNode>,
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p proxy-core --test parser_dispatch` 然后 `cargo test -p proxy-core`
 Expected: 全部 PASS（原 base64/明文用例不受影响——不含 `proxies:` 行）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/parser.rs crates/proxy-core/tests/parser_dispatch.rs
@@ -431,7 +431,7 @@ git commit -m "feat(proxy-core): auto-detect clash yaml subscriptions"
 - Consumes: `parse_lines(text, max_nodes)`、`decode_base64_url(s)`、`fetch_source(client, url, timeout) -> Result<String, String>`（签名均不变）
 - Produces: 无新接口；常量 `MAX_LINE_LEN`(parser.rs)、`MAX_BASE64_LEN`(uri.rs)、`MAX_BODY_BYTES`(service.rs) 为模块内私有
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/proxy-core/src/uri.rs` 的 `mod tests` 追加：
 
@@ -456,12 +456,12 @@ fn subscription_oversized_line_skipped() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p proxy-core uri::tests` 和 `cargo test -p proxy-core --test parser_dispatch`
 Expected: 两个新测试 FAIL（无长度限制，当前均可通过解析）
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `uri.rs` 的 `decode_base64_url` 开头加：
 
@@ -501,12 +501,12 @@ Expected: 两个新测试 FAIL（无长度限制，当前均可通过解析）
 
 （原实现为 `resp.text().await.map_err(...)`。）
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p proxy-core` 和 `cargo test -p server --test api_test`
 Expected: 全部 PASS（api_test 中 mock 源 body 远小于限制，不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/parser.rs crates/proxy-core/src/uri.rs crates/server/src/service.rs crates/proxy-core/tests/parser_dispatch.rs
@@ -525,7 +525,7 @@ git commit -m "fix: truncate oversized subscription lines, base64 input, and fet
 - Consumes: `proxy_to_clash(n: &ProxyNode) -> Result<String, SerializeError>`（现有，内部函数）
 - Produces: `serialize_clash(nodes: &[ProxyNode]) -> Result<String, SerializeError>` 签名不变；行为——单节点序列化失败跳过，不再整体失败
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/server/tests/api_test.rs` 追加：
 
@@ -565,12 +565,12 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p server --test api_test`
 Expected: FAIL — 当前 `proxy_to_clash(n)?` 传播错误，响应 500
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `serialize_clash` 改为逐节点容错：
 
@@ -607,12 +607,12 @@ pub fn serialize_clash(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
 
 （`ok` 同时复用序列化结果，group 列表只含成功节点。）
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p server --test api_test` 然后 `cargo test --workspace`
 Expected: 全部 PASS（`formats.rs` 中 `clash_yaml_has_proxies_and_groups` 等用例不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/formats/clash.rs crates/server/tests/api_test.rs
@@ -631,7 +631,7 @@ git commit -m "fix(proxy-core): per-node tolerant clash serialization, skip not 
 - Consumes: `ApiError::not_found(msg)`（已有）
 - Produces: 无新接口；`/api`、`//api/x`、`/api%2F...` 均返回统一 JSON 404
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `crates/server/tests/api_test.rs` 追加：
 
@@ -661,12 +661,12 @@ async fn api_path_variants_return_json_404() {
 }
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `cargo test -p server --test api_test api_path_variants`
 Expected: FAIL — `/api` 与 `//api/admin/sources` 当前返回 SPA HTML 200
 
-- [ ] **Step 3: 实现修复**
+- [x] **Step 3: 实现修复**
 
 `static.rs` fallback 中的判断：
 
@@ -680,12 +680,12 @@ Expected: FAIL — `/api` 与 `//api/admin/sources` 当前返回 SPA HTML 200
 
 （原代码为 `if uri.path().starts_with("/api/")`，不覆盖 `/api` 与双斜杠形态。）
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo test -p server --test api_test` 然后 `cargo test --workspace`
 Expected: 全部 PASS（原 `static_index_served_from_dist` 中 `/../etc/passwd` 与 `/some/spa/route` 用例不受影响——`/some/...` 不以 api 开头）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/server/src/static.rs crates/server/tests/api_test.rs
@@ -705,16 +705,16 @@ git commit -m "fix(server): api-404 guard covers /api and //api path variants"
 - Consumes: 无（确认无其他引用——实现后编译验证）
 - Produces: `Transport` 减少 `shadow_tls` 字段；`ShadowTlsConfig` 从 crate 公共 API 移除
 
-- [ ] **Step 1: 确认无引用**
+- [x] **Step 1: 确认无引用**
 
 Run: `grep -rn "shadow_tls\|ShadowTls" crates/ --include='*.rs'`
 Expected: 仅 model.rs（结构体 + 字段 + 注释）与 lib.rs（re-export）；无测试/序列化器引用
 
-- [ ] **Step 2: 写失败测试（编译级）**
+- [x] **Step 2: 写失败测试（编译级）**
 
 无独立测试——本任务的失败信号是编译错误。先做删除，`cargo build` 报错即为"失败"信号。
 
-- [ ] **Step 3: 实现删除**
+- [x] **Step 3: 实现删除**
 
 `model.rs`：
 - 删除 `pub shadow_tls: Option<ShadowTlsConfig>, // shadowtls 作为传输扩展` 行（Transport 内）
@@ -732,12 +732,12 @@ pub use model::{Crypto, GrpcConfig, HttpUpgradeConfig, Protocol, ProxyNode, TlsS
 - §3 中间模型草图中 `Transport` 注释去掉 shadowtls
 - §9 已确认决策清单协议范围行：去掉 "shadowtls 传输扩展"
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `cargo build --workspace && cargo test --workspace`
 Expected: 编译通过，全部测试 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/proxy-core/src/model.rs crates/proxy-core/src/lib.rs docs/superpowers/specs/2026-08-05-submerge-design.md
@@ -755,7 +755,7 @@ git commit -m "refactor(proxy-core): remove shadowtls dead code, drop from desig
 - Consumes: 设计文档 §5.1 内容清单
 - Produces: `README.md`——项目文档
 
-- [ ] **Step 1: 编写 README**
+- [x] **Step 1: 编写 README**
 
 按以下结构创建 `README.md`（内容参考 `docs/superpowers/specs/2026-08-05-submerge-design.md` 与 `docs/superpowers/specs/2026-08-06-hardening-design.md`）：
 
@@ -821,11 +821,11 @@ socks5、http、hysteria、hysteria2、wireguard 节点在此格式被跳过（�
 axum 服务（Rust） + proxy-core 协议库（纯逻辑、无 IO） + Dioxus WASM 管理界面 + SQLite 存储。
 ```
 
-- [ ] **Step 2: 核对内容**
+- [x] **Step 2: 核对内容**
 
 对照设计文档 §5.1 清单逐项确认（架构、快速开始、Docker、环境变量表、API、token 获取、v2ray 覆盖说明、测试说明）。
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md
@@ -843,7 +843,7 @@ git commit -m "docs: project README"
 - Consumes: 现有 Makefile 目标（build-web/build-server）
 - Produces: GitHub Actions workflow（fmt + clippy + test + web 构建 + docker 构建）
 
-- [ ] **Step 1: 编写 workflow**
+- [x] **Step 1: 编写 workflow**
 
 创建 `.github/workflows/ci.yml`：
 
@@ -900,12 +900,12 @@ jobs:
         run: docker build -t sub-merge .
 ```
 
-- [ ] **Step 2: 本地验证 workflow 中的命令**
+- [x] **Step 2: 本地验证 workflow 中的命令**
 
 Run: `cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings`
 Expected: 通过（若 clippy 有 warnings，先修复再提交本任务；修复属于本任务范围）
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -922,32 +922,32 @@ git commit -m "ci: github actions workflow (fmt, clippy, test, web, docker)"
 **Interfaces:**
 - Consumes: 全部任务的产出
 
-- [ ] **Step 1: 全量测试**
+- [x] **Step 1: 全量测试**
 
 Run: `cargo test --workspace`
 Expected: 全部 PASS（约 95+ 个测试）
 
-- [ ] **Step 2: 冒烟测试**
+- [x] **Step 2: 冒烟测试**
 
 Run: `make smoke`
 Expected: 9 步全部通过（依赖 dx 已安装；若未安装 dx，跳过本步并在 README 注明）
 
-- [ ] **Step 3: 对照设计文档逐项核对**
+- [x] **Step 3: 对照设计文档逐项核对**
 
 对照 `docs/superpowers/specs/2026-08-06-hardening-design.md` 的 §3/§4/§5 清单逐项确认已实现：
-- [ ] 3.1 hy2 `?` 修复
-- [ ] 3.2 trojan `?` 修复
-- [ ] 3.3 trojan TLS 默认
-- [ ] 3.4 clash 标量转义
-- [ ] 4.1 Clash YAML 自动识别
-- [ ] 4.2 超大输入截断（1MB 行 / 4MB base64 / 16MB body）
-- [ ] 4.3 wireguard 单节点降级
-- [ ] 4.4 `/api` 防护补丁
-- [ ] 5.1 README
-- [ ] 5.2 CI
-- [ ] 5.3 测试增强（各 Task 内已含）
+- [x] 3.1 hy2 `?` 修复
+- [x] 3.2 trojan `?` 修复
+- [x] 3.3 trojan TLS 默认
+- [x] 3.4 clash 标量转义
+- [x] 4.1 Clash YAML 自动识别
+- [x] 4.2 超大输入截断（1MB 行 / 4MB base64 / 16MB body）
+- [x] 4.3 wireguard 单节点降级
+- [x] 4.4 `/api` 防护补丁
+- [x] 5.1 README
+- [x] 5.2 CI
+- [x] 5.3 测试增强（各 Task 内已含）
 
-- [ ] **Step 4: 提交收尾**
+- [x] **Step 4: 提交收尾**
 
 若 Step 1-3 有任何修复，提交；否则无需提交：
 ```bash
