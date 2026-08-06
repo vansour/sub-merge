@@ -1,6 +1,7 @@
 // crates/server/web/src/components/preview.rs
-// Task 4：转换预览。拉取 /api/admin/preview 渲染节点表 + 源错误，支持手动刷新。
+// 转换预览：节点表（协议彩色徽章）+ 源错误警告卡片。
 use crate::api::request;
+use crate::components::icon::{icon, Spinner};
 use dioxus::prelude::*;
 use serde::Deserialize;
 
@@ -19,15 +20,25 @@ struct PreviewResp {
     total: usize,
 }
 
+// 协议 → 配色（CSS --proto-0..5）。同族协议同色。
+fn proto_class(protocol: &str) -> &'static str {
+    match protocol {
+        "ss" | "ssr" => "proto-0",
+        "vmess" | "vless" => "proto-1",
+        "trojan" => "proto-2",
+        "hysteria" | "hysteria2" => "proto-3",
+        "tuic" => "proto-4",
+        _ => "proto-5",
+    }
+}
+
 #[component]
 pub fn Preview(token: Signal<Option<String>>) -> Element {
     let data = use_signal(|| None::<PreviewResp>);
     let loading = use_signal(|| false);
     let error = use_signal(String::new);
 
-    // 初次挂载时加载一次。
-    // 用 use_future（挂载时只跑一次），避免计划里的 spawn-on-render 模式
-    // 在每次 render 时重复发起请求。
+    // 初次挂载加载一次。
     use_future(move || {
         let token = token.read().clone();
         let mut data = data;
@@ -35,6 +46,7 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         let mut error = error;
         async move {
             loading.set(true);
+            error.set(String::new());
             match request("GET", "/api/admin/preview", None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
                     Ok(r) => data.set(Some(r)),
@@ -53,6 +65,7 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         let mut error = error.clone();
         spawn(async move {
             loading.set(true);
+            error.set(String::new());
             match request("GET", "/api/admin/preview", None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
                     Ok(r) => data.set(Some(r)),
@@ -64,39 +77,85 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         });
     };
 
+    let resp = data.read().clone();
+    let rows: Vec<Element> = resp
+        .as_ref()
+        .map(|r| {
+            r.nodes
+                .iter()
+                .map(|n| {
+                    let name = n.name.clone();
+                    let protocol = n.protocol.clone();
+                    let server = n.server.clone();
+                    let port = n.port;
+                    rsx! {
+                        tr {
+                            td { class: "cell-name", "{name}" }
+                            td { span { class: format!("proto {}", proto_class(&protocol)), "{protocol}" } }
+                            td { class: "cell-url", "{server}" }
+                            td { "{port}" }
+                        }
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let error_rows: Vec<Element> = resp
+        .as_ref()
+        .map(|r| {
+            r.errors
+                .iter()
+                .map(|e| {
+                    let e = e.clone();
+                    rsx! {
+                        div { class: "error-line", {icon("alert", 14)} span { "{e}" } }
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     rsx! {
-        div { class: "card",
-            h2 { "转换预览" }
-            if !error.read().is_empty() {
-                p { style: "color: #ff3b30", "{error}" }
+        div { class: "page-head",
+            h1 { class: "page-title", "转换预览" }
+            if let Some(r) = resp.as_ref() {
+                span { class: "badge on", "共 {r.total} 个节点" }
             }
-            button { onclick: reload, "刷新预览" }
-            if *loading.read() {
-                p { "加载中..." }
+            button { class: "btn btn-secondary", onclick: reload, disabled: *loading.read(),
+                if *loading.read() {
+                    Spinner { size: 14 }
+                } else {
+                    {icon("refresh", 14)}
+                }
+                "刷新预览"
             }
-            if let Some(resp) = data.read().as_ref() {
-                p { "共 {resp.total} 个节点" }
-                table {
-                    thead { tr { th { "名称" } th { "协议" } th { "服务器" } th { "端口" } } }
-                    tbody {
-                        for n in &resp.nodes {
-                            tr {
-                                td { "{n.name}" }
-                                td { "{n.protocol}" }
-                                td { "{n.server}" }
-                                td { "{n.port}" }
-                            }
+        }
+        if !error.read().is_empty() {
+            p { class: "error-text", "{error}" }
+        }
+        if let Some(r) = resp.as_ref() {
+            if r.nodes.is_empty() {
+                div { class: "empty",
+                    {icon("preview", 36)}
+                    span { class: "empty-title", "暂无节点" }
+                    span { class: "empty-hint", "检查订阅源是否已启用、刷新后重试" }
+                }
+            } else {
+                div { class: "table-wrap",
+                    table {
+                        thead {
+                            tr { th { "名称" } th { "协议" } th { "服务器" } th { "端口" } }
+                        }
+                        tbody {
+                            {rows.into_iter()}
                         }
                     }
                 }
-                if !resp.errors.is_empty() {
-                    h4 { "源错误" }
-                    ul {
-                        for e in &resp.errors {
-                            li { "{e}" }
-                        }
-                    }
-                }
+            }
+            if !r.errors.is_empty() {
+                h2 { class: "card-title", style: "margin-top: 20px", "源错误" }
+                div { class: "warning-box", {error_rows.into_iter()} }
             }
         }
     }
