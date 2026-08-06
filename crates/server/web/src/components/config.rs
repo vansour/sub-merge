@@ -2,31 +2,19 @@
 // 配置页：订阅链接卡片（复制反馈）+ Token 管理（掩码显示 + 轮换确认）。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
+use crate::components::copy_text;
 use crate::components::icon::icon;
 use crate::components::login::write_token;
-use crate::components::toast::{push_toast, schedule_timeout, use_toast, ToastKind};
+use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
 use dioxus::prelude::*;
 use serde::Deserialize;
 use std::rc::Rc;
-use wasm_bindgen_futures::JsFuture;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigDto {
     pub admin_token: String,
     pub combined_name: String,
     pub subscribe_url: String,
-}
-
-// web-sys 0.3.103 实测签名（与计划里的说明不同）：
-//   Window::navigator() -> Navigator（直接返回，非 Option）
-//   Navigator::clipboard() -> Clipboard（直接返回，非 Result）
-//   Clipboard::write_text(&str) -> js_sys::Promise（用 JsFuture await）
-//   Window::location() -> Location；Location::href() -> Result<String, JsValue>
-async fn copy_text(text: String) -> Result<(), String> {
-    let nav = web_sys::window().map(|w| w.navigator()).ok_or("无窗口")?;
-    let clip = nav.clipboard();
-    JsFuture::from(clip.write_text(&text)).await.map_err(|e| format!("{:?}", e))?;
-    Ok(())
 }
 
 #[component]
@@ -163,13 +151,17 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         .read()
         .as_ref()
         .map(|c| {
-            [("Clash", "clash"), ("V2Ray", "v2ray"), ("Sing-box", "singbox")]
-                .into_iter()
-                .map(|(label, fmt)| {
-                    let link = format!("{}{}?format={}", base_url, c.subscribe_url, fmt);
-                    (label, link)
-                })
-                .collect()
+            [
+                ("Clash", "clash"),
+                ("V2Ray", "v2ray"),
+                ("Sing-box", "singbox"),
+            ]
+            .into_iter()
+            .map(|(label, fmt)| {
+                let link = format!("{}{}?format={}", base_url, c.subscribe_url, fmt);
+                (label, link)
+            })
+            .collect()
         })
         .unwrap_or_default();
 

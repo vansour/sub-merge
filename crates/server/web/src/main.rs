@@ -3,9 +3,10 @@ mod api;
 mod components;
 
 use crate::api::request;
+use components::combineds::Combineds;
 use components::config::Config;
-use components::icon::{icon, Spinner};
-use components::login::{clear_token, read_token, write_token, Login};
+use components::icon::{Spinner, icon};
+use components::login::{Login, clear_token, read_token, write_token};
 use components::overview::Overview;
 use components::preview::Preview;
 use components::sources::Sources;
@@ -86,8 +87,9 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                 nav { class: "nav",
                     NavItem { name: "overview", label: "概览", active: *tab.read() == 0, onnav: move |_| tab.set(0) }
                     NavItem { name: "sources", label: "订阅源", active: *tab.read() == 1, onnav: move |_| tab.set(1) }
-                    NavItem { name: "preview", label: "预览", active: *tab.read() == 2, onnav: move |_| tab.set(2) }
-                    NavItem { name: "config", label: "配置", active: *tab.read() == 3, onnav: move |_| tab.set(3) }
+                    NavItem { name: "combineds", label: "组合订阅", active: *tab.read() == 2, onnav: move |_| tab.set(2) }
+                    NavItem { name: "preview", label: "预览", active: *tab.read() == 3, onnav: move |_| tab.set(3) }
+                    NavItem { name: "config", label: "配置", active: *tab.read() == 4, onnav: move |_| tab.set(4) }
                 }
                 div { class: "sidebar-footer",
                     span { class: "sidebar-version", "v0.1.0" }
@@ -105,7 +107,8 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                     match *tab.read() {
                         0 => rsx! { Overview { token, on_goto } },
                         1 => rsx! { Sources { token } },
-                        2 => rsx! { Preview { token } },
+                        2 => rsx! { Combineds { token } },
+                        3 => rsx! { Preview { token } },
                         _ => rsx! { Config { token } },
                     }
                 }
@@ -115,7 +118,12 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
 }
 
 #[component]
-fn NavItem(name: &'static str, label: &'static str, active: bool, onnav: EventHandler<MouseEvent>) -> Element {
+fn NavItem(
+    name: &'static str,
+    label: &'static str,
+    active: bool,
+    onnav: EventHandler<MouseEvent>,
+) -> Element {
     rsx! {
         button { class: if active { "nav-item active" } else { "nav-item" }, onclick: onnav,
             {icon(name, 16)}

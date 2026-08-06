@@ -244,6 +244,17 @@
     .link-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .link-row:last-child { border-bottom: none; }
     .link-label { font-weight: 500; font-size: 13.5px; flex-shrink: 0; width: 76px; }
+
+    /* ========== 组合订阅页 ========== */
+    .combined-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .combined-row:last-child { border-bottom: none; }
+    .combined-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .combined-name { font-family: var(--font-mono); font-size: 13.5px; font-weight: 500; white-space: nowrap; }
+    .combined-links { display: flex; gap: 6px; margin-left: auto; }
+    .member-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13.5px; cursor: pointer; }
+    .member-row input { accent-color: var(--accent); }
+    .member-row .badge { margin-left: 2px; }
+    .member-row .badge.off { margin-left: auto; }
     .link-url { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .token-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
     .token-row + .token-row { border-top: 1px solid var(--border); }
