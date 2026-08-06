@@ -33,8 +33,11 @@ jobs:
           toolchain: 1.97
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: install dx
-        run: cargo install dioxus-cli --version 0.8.0-alpha.1
+      - name: install dx (prebuilt, sha256 pinned)
+        run: |
+          curl -sSLo /tmp/dx.zip https://github.com/DioxusLabs/dioxus/releases/download/v0.8.0-alpha.1/dx-x86_64-unknown-linux-gnu.zip
+          echo "4aac287c2f66ef001f34e364aa5289fdf5f556cfb22e9a54cf388f82946a0edb  /tmp/dx.zip" | sha256sum -c -
+          sudo unzip -o -q /tmp/dx.zip -d /usr/local/bin
       - name: build web
         working-directory: crates/server/web
         run: |

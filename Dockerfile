@@ -6,19 +6,27 @@
 # 阶段 2（server-builder）：编译 axum 后端（release）。
 # 阶段 3（runtime）：debian trixie-slim + 编译产物 + 前端 dist，运行 server。
 #
-# 注意：cargo install dioxus-cli --version 0.8.0-alpha.1 需要从 crates.io
-# 拉取并编译 dioxus-cli（含大量依赖），首次构建较慢（数分钟到十几分钟），
-# 但保证确定性：失败即构建失败，不会静默产出空 dist。
+# 注意：dx 使用官方 GitHub release 的预编译二进制（精确版本 + sha256 固定），
+# 比 cargo install dioxus-cli（需编译数百个依赖，数分钟到十几分钟）快得多；
+# sha256sum -c 校验失败即构建失败，不会静默产出空 dist。
 #
 # 构建：
 #   docker build -t sub-merge .
 
 # ---- 阶段 1: 构建前端 WASM ----
-FROM rust:1.97 AS web-builder
+FROM rust:trixie AS web-builder
 RUN rustup target add wasm32-unknown-unknown
 # dx 0.8.0-alpha.1 与 dioxus 0.8.0-alpha.1 配套（已实测可 dx build --web）。
-# 固定精确版本，不用 || true 掩盖失败。
-RUN cargo install dioxus-cli --version 0.8.0-alpha.1
+# 资产：https://github.com/DioxusLabs/dioxus/releases/download/v0.8.0-alpha.1/dx-x86_64-unknown-linux-gnu.zip
+# （官方仅发布 glibc 变体；rust:trixie 为 glibc 基础镜像，匹配）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -sSLo /tmp/dx.zip \
+       https://github.com/DioxusLabs/dioxus/releases/download/v0.8.0-alpha.1/dx-x86_64-unknown-linux-gnu.zip \
+    && echo "4aac287c2f66ef001f34e364aa5289fdf5f556cfb22e9a54cf388f82946a0edb  /tmp/dx.zip" | sha256sum -c - \
+    && unzip -o -q /tmp/dx.zip -d /usr/local/bin \
+    && rm /tmp/dx.zip
 WORKDIR /app/crates/server/web
 COPY crates/server/web /app/crates/server/web
 # 独立 crate：本 crate 有空的 [workspace] 表 opt-out，无需根 Cargo.toml。
@@ -31,7 +39,7 @@ RUN dx build --web \
     && cp -r target/dx/submerge-web/debug/web/public /out/web/dist
 
 # ---- 阶段 2: 构建 Rust 服务端 ----
-FROM rust:1.97 AS server-builder
+FROM rust:trixie AS server-builder
 WORKDIR /app
 COPY Cargo.toml /app/Cargo.toml
 COPY Cargo.lock /app/Cargo.lock
@@ -46,7 +54,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && mkdir -p /out && cp /app/target/release/server /out/server
 
 # ---- 阶段 3: 运行时 ----
-# 必须与 rust:1.97 的 glibc 匹配（rust:1.97 基于 Debian 13/trixie，glibc 2.41）。
+# 必须与 rust:trixie 的 glibc 匹配（rust:trixie 基于 Debian 13/trixie，glibc 2.41）。
 # bookworm-slim 只有 glibc 2.36，运行编译产物会报 GLIBC_2.38 not found。
 FROM debian:trixie-slim
 RUN apt-get update \

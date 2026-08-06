@@ -32,7 +32,13 @@ docker build -t sub-merge .
 docker run -d --name sub-merge -p 8080:8080 -v submerge-data:/app/data sub-merge
 ```
 
-多阶段构建：前端 WASM 与后端在同一镜像内，SQLite 数据通过 `/app/data` 卷持久化。
+或使用 docker compose（`compose.yaml`）：
+
+```bash
+docker compose up -d --build
+```
+
+多阶段构建：前端 WASM 与后端在同一镜像内，SQLite 数据通过 `/app/data` 卷持久化（compose 使用 named volume `submerge-data`）。
 
 ## 环境变量
 
