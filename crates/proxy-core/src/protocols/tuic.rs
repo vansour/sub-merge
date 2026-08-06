@@ -1,8 +1,7 @@
 // crates/proxy-core/src/protocols/tuic.rs
 use crate::error::{ParseError, SerializeError};
 use crate::model::{Protocol, ProxyNode, TlsSettings};
-use crate::uri::{parse_host_port, percent_decode, split_authority};
-use urlencoding::encode;
+use crate::uri::{parse_host_port, percent_decode, split_authority, urlencode};
 
 pub fn is_tuic(uri: &str) -> bool {
     uri.starts_with("tuic://")
@@ -71,15 +70,15 @@ pub fn serialize_tuic(node: &ProxyNode) -> Result<String, SerializeError> {
         return Err(SerializeError::UnsupportedProtocol(node.kind.as_str()));
     }
     let uuid = node.uuid.as_deref().unwrap_or_default();
-    let password = encode(node.password.as_deref().unwrap_or_default());
+    let password = urlencode(node.password.as_deref().unwrap_or_default());
     let mut out = format!("tuic://{}:{}@{}:{}", uuid, password, node.server, node.port);
     out.push_str("?congestion_control=bbr&udp_relay_mode=native");
     if let Some(t) = &node.tls {
         if let Some(s) = &t.sni {
-            out.push_str(&format!("&sni={}", encode(s)));
+            out.push_str(&format!("&sni={}", urlencode(s)));
         }
         if !t.alpn.is_empty() {
-            out.push_str(&format!("&alpn={}", encode(&t.alpn.join(","))));
+            out.push_str(&format!("&alpn={}", urlencode(&t.alpn.join(","))));
         }
         if t.insecure {
             out.push_str("&allow_insecure=1");

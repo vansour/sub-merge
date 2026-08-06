@@ -1,8 +1,7 @@
 // crates/proxy-core/src/protocols/hysteria.rs
 use crate::error::{ParseError, SerializeError};
 use crate::model::{Protocol, ProxyNode, TlsSettings};
-use crate::uri::{parse_host_port, percent_decode};
-use urlencoding::encode;
+use crate::uri::{parse_host_port, percent_decode, urlencode};
 
 pub fn is_hysteria(uri: &str) -> bool {
     uri.starts_with("hysteria://")
@@ -69,14 +68,14 @@ pub fn serialize_hysteria(node: &ProxyNode) -> Result<String, SerializeError> {
         "hysteria://{}:{}?protocol=udp&auth={}",
         node.server,
         node.port,
-        encode(auth)
+        urlencode(auth)
     );
     if let Some(t) = &node.tls {
         if let Some(s) = &t.sni {
-            out.push_str(&format!("&sni={}", encode(s)));
+            out.push_str(&format!("&sni={}", urlencode(s)));
         }
         if let Some(a) = t.alpn.first() {
-            out.push_str(&format!("&alpn={}", encode(a)));
+            out.push_str(&format!("&alpn={}", urlencode(a)));
         }
         if t.insecure {
             out.push_str("&insecure=1");

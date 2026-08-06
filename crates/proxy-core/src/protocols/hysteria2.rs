@@ -1,8 +1,7 @@
 // crates/proxy-core/src/protocols/hysteria2.rs
 use crate::error::{ParseError, SerializeError};
 use crate::model::{Protocol, ProxyNode, TlsSettings};
-use crate::uri::{parse_host_port, percent_decode, split_authority};
-use urlencoding::encode;
+use crate::uri::{parse_host_port, percent_decode, split_authority, urlencode};
 
 pub fn is_hysteria2(uri: &str) -> bool {
     uri.starts_with("hysteria2://") || uri.starts_with("hy2://")
@@ -71,7 +70,7 @@ pub fn serialize_hysteria2(node: &ProxyNode) -> Result<String, SerializeError> {
     }
     let mut out = format!(
         "hysteria2://{}@{}:{}",
-        encode(node.password.as_deref().unwrap_or_default()),
+        urlencode(node.password.as_deref().unwrap_or_default()),
         node.server,
         node.port
     );
@@ -79,10 +78,10 @@ pub fn serialize_hysteria2(node: &ProxyNode) -> Result<String, SerializeError> {
     let mut query: Vec<String> = Vec::new();
     if let Some(t) = &node.tls {
         if let Some(s) = &t.sni {
-            query.push(format!("sni={}", encode(s)));
+            query.push(format!("sni={}", urlencode(s)));
         }
         if let Some(a) = t.alpn.first() {
-            query.push(format!("alpn={}", encode(a)));
+            query.push(format!("alpn={}", urlencode(a)));
         }
         if t.insecure {
             query.push("insecure=1".into());

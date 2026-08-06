@@ -3,8 +3,7 @@ use crate::error::{ParseError, SerializeError};
 use crate::model::{
     GrpcConfig, HttpUpgradeConfig, Protocol, ProxyNode, TlsSettings, Transport, WebsocketConfig,
 };
-use crate::uri::{parse_host_port, percent_decode, split_authority};
-use urlencoding::encode;
+use crate::uri::{parse_host_port, percent_decode, split_authority, urlencode};
 
 pub fn is_vless(uri: &str) -> bool {
     uri.starts_with("vless://")
@@ -144,20 +143,20 @@ pub fn serialize_vless(node: &ProxyNode) -> Result<String, SerializeError> {
             out.push_str("&security=tls");
         }
         if let Some(s) = &t.sni {
-            out.push_str(&format!("&sni={}", encode(s)));
+            out.push_str(&format!("&sni={}", urlencode(s)));
         }
         if let Some(fp) = &t.fingerprint {
-            out.push_str(&format!("&fp={}", encode(fp)));
+            out.push_str(&format!("&fp={}", urlencode(fp)));
         }
         if !t.alpn.is_empty() {
-            out.push_str(&format!("&alpn={}", encode(&t.alpn.join(","))));
+            out.push_str(&format!("&alpn={}", urlencode(&t.alpn.join(","))));
         }
     }
     if !host.is_empty() {
-        out.push_str(&format!("&host={}", encode(&host)));
+        out.push_str(&format!("&host={}", urlencode(&host)));
     }
     if !path.is_empty() {
-        out.push_str(&format!("&path={}", encode(&path)));
+        out.push_str(&format!("&path={}", urlencode(&path)));
     }
     if !node.name.is_empty() {
         out.push('#');

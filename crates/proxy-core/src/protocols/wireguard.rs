@@ -1,8 +1,7 @@
 // crates/proxy-core/src/protocols/wireguard.rs
 use crate::error::{ParseError, SerializeError};
 use crate::model::{Protocol, ProxyNode};
-use crate::uri::{parse_host_port, percent_decode, split_authority};
-use urlencoding::encode;
+use crate::uri::{parse_host_port, percent_decode, split_authority, urlencode};
 
 pub fn is_wireguard(uri: &str) -> bool {
     uri.starts_with("wireguard://")
@@ -74,9 +73,14 @@ pub fn serialize_wireguard(node: &ProxyNode) -> Result<String, SerializeError> {
         .uuid
         .as_ref()
         .ok_or(SerializeError::MissingField("privateKey"))?;
-    let mut out = format!("wireguard://{}@{}:{}", encode(pubk), node.server, node.port);
-    out.push_str(&format!("?publicKey={}", encode(pubk)));
-    out.push_str(&format!("&privateKey={}", encode(privk)));
+    let mut out = format!(
+        "wireguard://{}@{}:{}",
+        urlencode(pubk),
+        node.server,
+        node.port
+    );
+    out.push_str(&format!("?publicKey={}", urlencode(pubk)));
+    out.push_str(&format!("&privateKey={}", urlencode(privk)));
     out.push_str("&reserved=0,0,0&mtu=1420");
     out.push_str("&ip=10.0.0.1/24");
     if !node.name.is_empty() {

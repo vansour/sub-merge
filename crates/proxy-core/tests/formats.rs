@@ -82,6 +82,17 @@ fn serialize_dispatch() {
 }
 
 #[test]
+fn urlencode_equivalent_to_old_semantics() {
+    // 与 urlencoding::encode 语义等价：保留 RFC3986 unreserved，其余逐字节转义，
+    // 空格 → %20（非 +）
+    assert_eq!(proxy_core::uri::urlencode("a b/c~"), "a%20b%2Fc~");
+    assert_eq!(proxy_core::uri::urlencode("ABC-._~"), "ABC-._~");
+    assert_eq!(proxy_core::uri::urlencode("日本"), "%E6%97%A5%E6%9C%AC");
+    assert_eq!(proxy_core::uri::urlencode("a+b"), "a%2Bb");
+    assert_eq!(proxy_core::uri::urlencode(""), "");
+}
+
+#[test]
 fn empty_nodes_ok() {
     assert!(serialize_clash(&[]).is_ok());
     assert!(serialize_singbox(&[]).is_ok());
@@ -110,7 +121,7 @@ fn clash_yaml_quotes_hostile_names() {
             ..Default::default()
         };
         let out = serialize_clash(&[node]).unwrap();
-        let v: serde_yaml::Value = serde_yaml::from_str(&out)
+        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out)
             .unwrap_or_else(|e| panic!("output must be valid yaml for {name:?}: {e}\n{out}"));
         assert_eq!(
             v["proxies"][0]["name"].as_str().unwrap(),

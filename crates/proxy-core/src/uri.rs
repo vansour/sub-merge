@@ -1,5 +1,6 @@
 // crates/proxy-core/src/uri.rs
 use crate::error::ParseError;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 pub fn decode_base64_url(s: &str) -> Result<Vec<u8>, ParseError> {
     use base64::Engine;
@@ -34,6 +35,18 @@ pub fn percent_decode(s: &str) -> Result<String, ParseError> {
         .decode_utf8()
         .map(|c| c.to_string())
         .map_err(|_| ParseError::InvalidUri(s.to_string()))
+}
+
+/// 与 urlencoding::encode 语义等价：保留 RFC3986 unreserved（字母数字与 -_.~），
+/// 其余字符（含空格、UTF-8 多字节）逐字节 percent-encode（空格 → %20 而非 +）。
+const URLENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
+pub fn urlencode(s: &str) -> String {
+    utf8_percent_encode(s, URLENCODE_SET).to_string()
 }
 
 /// 在最后一个 '@' 处拆分。返回 (userinfo, hostpart)。

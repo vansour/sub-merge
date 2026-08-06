@@ -3,8 +3,7 @@ use crate::error::{ParseError, SerializeError};
 use crate::model::{
     GrpcConfig, HttpUpgradeConfig, Protocol, ProxyNode, TlsSettings, Transport, WebsocketConfig,
 };
-use crate::uri::{parse_host_port, percent_decode, split_authority};
-use urlencoding::encode;
+use crate::uri::{parse_host_port, percent_decode, split_authority, urlencode};
 
 pub fn is_trojan(uri: &str) -> bool {
     uri.starts_with("trojan://")
@@ -118,7 +117,7 @@ pub fn serialize_trojan(node: &ProxyNode) -> Result<String, SerializeError> {
         .ok_or(SerializeError::MissingField("password"))?;
     let mut out = format!(
         "trojan://{}@{}:{}",
-        encode(password),
+        urlencode(password),
         node.server,
         node.port
     );
@@ -149,23 +148,23 @@ pub fn serialize_trojan(node: &ProxyNode) -> Result<String, SerializeError> {
             query.push("security=tls".into());
         }
         if let Some(s) = &t.sni {
-            query.push(format!("sni={}", encode(s)));
+            query.push(format!("sni={}", urlencode(s)));
         }
         if let Some(fp) = &t.fingerprint {
-            query.push(format!("fp={}", encode(fp)));
+            query.push(format!("fp={}", urlencode(fp)));
         }
         if !t.alpn.is_empty() {
-            query.push(format!("alpn={}", encode(&t.alpn.join(","))));
+            query.push(format!("alpn={}", urlencode(&t.alpn.join(","))));
         }
     }
     if net != "tcp" {
         query.push(format!("type={}", net));
     }
     if !host.is_empty() {
-        query.push(format!("host={}", encode(&host)));
+        query.push(format!("host={}", urlencode(&host)));
     }
     if !path.is_empty() {
-        query.push(format!("path={}", encode(&path)));
+        query.push(format!("path={}", urlencode(&path)));
     }
     if !query.is_empty() {
         out.push('?');

@@ -93,8 +93,8 @@ pub fn parse_subscription_text(text: &str, max_nodes: usize) -> (Vec<ProxyNode>,
 
 /// 解析 Clash YAML 的 proxies 段。
 pub fn parse_clash_yaml(text: &str) -> Result<Vec<ProxyNode>, ParseError> {
-    let doc: serde_yaml::Value =
-        serde_yaml::from_str(text).map_err(|e| ParseError::InvalidUri(e.to_string()))?;
+    let doc: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(text).map_err(|e| ParseError::InvalidUri(e.to_string()))?;
     let Some(proxies) = doc.get("proxies").and_then(|p| p.as_sequence()) else {
         return Ok(Vec::new());
     };
@@ -107,7 +107,7 @@ pub fn parse_clash_yaml(text: &str) -> Result<Vec<ProxyNode>, ParseError> {
     Ok(nodes)
 }
 
-fn clash_proxy_to_node(p: &serde_yaml::Value) -> Option<ProxyNode> {
+fn clash_proxy_to_node(p: &serde_yaml_ng::Value) -> Option<ProxyNode> {
     let name = p.get("name")?.as_str()?.to_string();
     let ty = p.get("type")?.as_str()?.to_lowercase();
     let server = p.get("server")?.as_str()?.to_string();
