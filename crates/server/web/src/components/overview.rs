@@ -38,11 +38,11 @@ pub fn Overview(token: Signal<Option<String>>, on_goto: EventHandler<usize>) -> 
             error.set(String::new());
             match fetch_sources(token.as_deref()).await {
                 Ok(list) => sources.set(list),
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
             match fetch_preview(token.as_deref()).await {
                 Ok(s) => stats.set(Some(s)),
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
             loading.set(false);
         }
@@ -59,11 +59,11 @@ pub fn Overview(token: Signal<Option<String>>, on_goto: EventHandler<usize>) -> 
             error.set(String::new());
             match fetch_sources(token.as_deref()).await {
                 Ok(list) => sources.set(list),
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
             match fetch_preview(token.as_deref()).await {
                 Ok(s) => stats.set(Some(s)),
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
             loading.set(false);
         });

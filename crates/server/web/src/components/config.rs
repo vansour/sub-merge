@@ -55,7 +55,7 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
                     }
                     Err(e) => error.set(format!("解析失败: {}", e)),
                 },
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
         }
     });
@@ -82,7 +82,7 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
                     }
                     Err(e) => error.set(format!("解析失败: {}", e)),
                 },
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
         });
     };

@@ -52,7 +52,7 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
                     Ok(r) => data.set(Some(r)),
                     Err(e) => error.set(format!("解析失败: {}", e)),
                 },
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
             loading.set(false);
         }
@@ -71,7 +71,7 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
                     Ok(r) => data.set(Some(r)),
                     Err(e) => error.set(format!("解析失败: {}", e)),
                 },
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
             loading.set(false);
         });

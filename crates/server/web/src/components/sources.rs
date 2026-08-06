@@ -45,7 +45,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         async move {
             match fetch_sources(token.as_deref()).await {
                 Ok(list) => sources.set(list),
-                Err(e) => error.set(e),
+                Err(e) => error.set(e.to_string()),
             }
         }
     });
@@ -78,7 +78,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                             error.set(String::new());
                             push_toast(toasts, ToastKind::Success, "订阅源已添加");
                         }
-                        Err(e) => error.set(e),
+                        Err(e) => error.set(e.to_string()),
                     }
                 }
                 Err(e) => error.set(format!("添加失败: {e}")),
@@ -101,7 +101,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                             sources.set(list);
                             push_toast(toasts, ToastKind::Info, if enabled { "已停用" } else { "已启用" });
                         }
-                        Err(e) => error.set(e),
+                        Err(e) => error.set(e.to_string()),
                     }
                 }
                 Err(e) => push_toast(toasts, ToastKind::Error, format!("操作失败: {e}")),
@@ -174,7 +174,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                                 sources.set(list);
                                 push_toast(toasts, ToastKind::Success, "已删除");
                             }
-                            Err(e) => error.set(e),
+                            Err(e) => error.set(e.to_string()),
                         }
                     }
                     Err(e) => push_toast(toasts, ToastKind::Error, format!("删除失败: {e}")),
