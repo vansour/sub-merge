@@ -2,8 +2,9 @@
 mod api;
 mod components;
 
+use crate::api::request;
 use components::config::Config;
-use components::icon::icon;
+use components::icon::{icon, Spinner};
 use components::login::{clear_token, read_token, write_token, Login};
 use components::overview::Overview;
 use components::preview::Preview;
@@ -18,21 +19,48 @@ fn main() {
 #[component]
 fn App() -> Element {
     let mut token = use_signal(|| read_token());
+    // 启动时校验一次本地存储的 token：有效则进入主界面，失效（401）则清掉回登录页。
+    let mut checking = use_signal(|| true);
+    use_future(move || {
+        let mut token = token;
+        let mut checking = checking;
+        async move {
+            if let Some(t) = token() {
+                match request("GET", "/api/admin/config", None, Some(&t)).await {
+                    Ok(_) => {} // 有效，保留
+                    Err(_) => {
+                        clear_token();
+                        token.set(None);
+                    }
+                }
+            }
+            checking.set(false);
+        }
+    });
     rsx! {
-        match token().as_deref() {
-            Some(_) => rsx! {
-                // ToastProvider 必须包在需要 toast 的子树外层（context 只向下传播）。
-                ToastProvider {
-                    MainShell { token }
+        match *checking.read() {
+            true => rsx! {
+                div { class: "login-wrap",
+                    div { class: "login-card",
+                        div { class: "login-logo", Spinner { size: 40 } }
+                    }
                 }
             },
-            None => rsx! {
-                Login {
-                    on_login: move |t: String| {
-                        write_token(&t);
-                        token.set(Some(t));
-                    },
-                }
+            false => match token().as_deref() {
+                Some(_) => rsx! {
+                    // ToastProvider 必须包在需要 toast 的子树外层（context 只向下传播）。
+                    ToastProvider {
+                        MainShell { token }
+                    }
+                },
+                None => rsx! {
+                    Login {
+                        on_login: move |t: String| {
+                            write_token(&t);
+                            token.set(Some(t));
+                        },
+                    }
+                },
             },
         }
     }
