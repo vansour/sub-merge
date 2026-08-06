@@ -3,3 +3,4 @@
 //! 依赖方向：submerge-web（web crate）→ 本 crate；本 crate 不依赖任何前端渲染代码。
 
 pub mod dto;
+pub mod error;
