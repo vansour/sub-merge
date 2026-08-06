@@ -112,9 +112,14 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
     let mut copy_click = move |label: &'static str, link: String| {
         copy_text(link);
         copied.set(Some(label));
+        let mut toasts = toasts.clone();
+        push_toast(toasts, ToastKind::Success, "已复制到剪贴板");
         let mut copied = copied.clone();
+        // 按 label 门控：2s 内复制了其他行时，不清掉那行的"已复制"反馈。
         schedule_timeout(2000, move || {
-            copied.set(None);
+            if *copied.read() == Some(label) {
+                copied.set(None);
+            }
         });
     };
 
