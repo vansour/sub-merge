@@ -544,7 +544,7 @@ async fn config_get_and_rotate() {
         req
     };
 
-    // GET config：默认 merged、无订阅 token 字段
+    // GET config：只含 admin_token；combined_name/subscribe_url/subscribe_token 已移除
     let resp = app
         .clone()
         .oneshot(auth(
@@ -560,8 +560,15 @@ async fn config_get_and_rotate() {
         .await
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["combined_name"], "merged");
-    assert_eq!(v["subscribe_url"], "/subscribe/merged");
+    assert_eq!(v["admin_token"], admin);
+    assert!(
+        v.get("combined_name").is_none(),
+        "combined_name must be gone"
+    );
+    assert!(
+        v.get("subscribe_url").is_none(),
+        "subscribe_url must be gone"
+    );
     assert!(
         v.get("subscribe_token").is_none(),
         "subscribe_token must be gone"
@@ -581,99 +588,6 @@ async fn config_get_and_rotate() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-
-    // 改组合订阅名 → 链接跟随
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            Request::builder()
-                .method("PUT")
-                .uri("/admin/config")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"combined_name": "my-sub"}).to_string()))
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["combined_name"], "my-sub");
-    assert_eq!(v["subscribe_url"], "/subscribe/my-sub");
-
-    // 非法名字 → 400
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            Request::builder()
-                .method("PUT")
-                .uri("/admin/config")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    json!({"combined_name": "bad name!"}).to_string(),
-                ))
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn combined_name_rename_takes_effect() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-cfg-rename", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
-    let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
-
-    let auth = |mut req: Request<Body>| {
-        req.headers_mut().insert(
-            "authorization",
-            format!("Bearer {}", admin).parse().unwrap(),
-        );
-        req
-    };
-    // 改名 my-sub
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            Request::builder()
-                .method("PUT")
-                .uri("/admin/config")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"combined_name": "my-sub"}).to_string()))
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    // 新名字可访问，旧名字 404
-    let resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/subscribe/my-sub?format=clash")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/subscribe/merged?format=clash")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -1434,4 +1348,199 @@ async fn combined_tables_and_cascade() {
         .await
         .unwrap();
     assert_eq!(n, 1, "other combined must keep its member");
+}
+
+#[tokio::test]
+async fn combined_crud_and_members() {
+    let tmp = std::env::temp_dir().join(format!(
+        "submerge-test-{}-combined-crud",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
+        req
+    };
+
+    // 两个源
+    let srcs: Vec<i64> = {
+        let mut v = Vec::new();
+        for (name, url) in [
+            ("s1", "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S1"),
+            ("s2", "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S2"),
+        ] {
+            let resp = app
+                .clone()
+                .oneshot(auth(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/admin/sources")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            json!({"url": url, "name": name, "kind": "single"}).to_string(),
+                        ))
+                        .unwrap(),
+                ))
+                .await
+                .unwrap();
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let v0: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            v.push(v0["id"].as_i64().unwrap());
+        }
+        v
+    };
+
+    // 创建组合（勾选 s1；s2 不选；另给一个不存在的 id 999 → 忽略）
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/combineds")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"name": "my-sub", "source_ids": [srcs[0], 999]}).to_string(),
+                ))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["name"], "my-sub");
+    assert_eq!(
+        v["source_ids"],
+        json!([srcs[0]]),
+        "nonexistent source id must be ignored"
+    );
+    let cid = v["id"].as_i64().unwrap();
+
+    // 列表
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .uri("/admin/combineds")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["source_ids"], json!([srcs[0]]));
+
+    // 成员全量替换为 [s2]
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/admin/combineds/{}", cid))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"source_ids": [srcs[1]]}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        v["source_ids"],
+        json!([srcs[1]]),
+        "members must be fully replaced"
+    );
+
+    // 改名
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/admin/combineds/{}", cid))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"name": "renamed-sub"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["name"], "renamed-sub");
+
+    // 名字冲突 → 400；非法名字 → 400
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/combineds")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"name": "renamed-sub"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/combineds")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"name": "bad name!"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // 删除 → 404（不存在）
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/admin/combineds/{}", cid))
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/admin/combineds/{}", cid))
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
