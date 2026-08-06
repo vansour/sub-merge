@@ -18,8 +18,19 @@ pub fn parse_ssr(uri: &str) -> Result<ProxyNode, ParseError> {
 
 fn parse_ssr_decoded(decoded: &str) -> Result<ProxyNode, ParseError> {
     // 拆出主段与 query。主段形如 server:port:protocol:method:obfs:base64(password)
-    let (main, query) = match decoded.find('/') {
-        Some(i) => (&decoded[..i], &decoded[i..]),
+    // query 分隔符是 "/?"（规范形态）或 "?"。不能用裸 '/' 切分：密码段的 standard
+    // base64 可能含 '/'（6-bit 组值 63），会拦腰截断密码。'?' 不在 base64 字母表内，
+    // 用 find("/?") 优先、find('?') 兜底；分隔符前的 '/' 从主段去掉。
+    let sep = decoded.find("/?").or_else(|| decoded.find('?'));
+    let (main, query) = match sep {
+        Some(i) => {
+            let end = if decoded.as_bytes()[i - 1] == b'/' {
+                i - 1
+            } else {
+                i
+            };
+            (&decoded[..end], &decoded[i..])
+        }
         None => (decoded, ""),
     };
     let parts: Vec<&str> = main.split(':').collect();
@@ -117,6 +128,38 @@ mod tests {
         assert_eq!(n.port, 8388);
         assert_eq!(n.password.as_deref(), Some("pass"));
         assert_eq!(n.name, "US-01");
+    }
+
+    #[test]
+    fn parse_password_base64_containing_slash() {
+        // 回归：密码的 standard base64 含 '/' 时不能被误切为 query 分隔符。
+        // 明文主段: 1.2.3.4:8388:auth_aes128_md5:aes-256-cfb:plain:cGFzcy8=  （密码 "pass/"，b64 含 '/'）
+        // 无 query（find("/?")/find('?') 均不命中）→ 整体不切分。
+        let plain = "1.2.3.4:8388:auth_aes128_md5:aes-256-cfb:plain:cGFzcy8=";
+        let uri = format!(
+            "ssr://{}",
+            base64::Engine::encode(
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                plain.as_bytes()
+            )
+        );
+        let n = parse_ssr(&uri).unwrap();
+        assert_eq!(n.server, "1.2.3.4");
+        assert_eq!(n.port, 8388);
+        assert_eq!(n.password.as_deref(), Some("pass/"));
+
+        // 带 "/?remarks=" query：分隔符切分正确，密码保留完整
+        let plain = "1.2.3.4:8388:auth_aes128_md5:aes-256-cfb:plain:cGFzcy8=/?remarks=MQ";
+        let uri = format!(
+            "ssr://{}",
+            base64::Engine::encode(
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                plain.as_bytes()
+            )
+        );
+        let n = parse_ssr(&uri).unwrap();
+        assert_eq!(n.password.as_deref(), Some("pass/"));
+        assert_eq!(n.name, "1");
     }
 
     #[test]

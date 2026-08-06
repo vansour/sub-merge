@@ -894,6 +894,10 @@ async fn api_path_variants_return_json_404() {
         "/admin%2Fsources/preview",
         "/subscribe",
         "//subscribe/whatever",
+        // 百分号编码字母形态：解码后才能命中前缀守卫
+        "/sub%73cribe/x",
+        "/adm%69n/config",
+        "/%61pi/admin/x",
     ] {
         let resp = app
             .clone()

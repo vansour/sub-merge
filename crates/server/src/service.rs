@@ -5,7 +5,6 @@ use proxy_core::parser::parse_subscription_text;
 use sqlx::Row;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 #[derive(Debug, Clone)]
@@ -36,8 +35,9 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
     let max_nodes = state.cfg.max_nodes;
     let client = Arc::new(state.http.clone());
     let timeout = Duration::from_secs(state.cfg.timeout_secs);
-    let cap = state.cfg.concurrency.max(1);
-    let semaphore = Arc::new(Semaphore::new(cap));
+    // 全局信号量（AppState 共享）：跨请求限制整个进程的并发拉取数，
+    // 无鉴权订阅端点被并发请求时不会放大出站流量。
+    let semaphore = state.fetch_semaphore.clone();
 
     let mut set = JoinSet::new();
     for (_, kind, name, url) in sources {
@@ -104,14 +104,20 @@ pub async fn fetch_source(
     if !resp.status().is_success() {
         return Err(format!("http status {}", resp.status()));
     }
+    // 流式限长读取：边读边截断到 MAX_BODY_BYTES 即停，避免整包缓冲（resp.bytes() 会把
+    // 整个响应体收进内存后才检查长度，超大响应可致内存暴涨）。超过上限的部分丢弃。
     const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("read body failed: {e}"))?;
-    if bytes.len() > MAX_BODY_BYTES {
-        // 超大 body 截断，防止后续 base64 解码/逐行解析内存膨胀
-        return Ok(String::from_utf8_lossy(&bytes[..MAX_BODY_BYTES]).into_owned());
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let mut buf = Vec::with_capacity(16 * 1024);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("read body failed: {e}"))?;
+        if buf.len() + chunk.len() > MAX_BODY_BYTES {
+            let remaining = MAX_BODY_BYTES - buf.len();
+            buf.extend_from_slice(&chunk[..remaining]);
+            break;
+        }
+        buf.extend_from_slice(&chunk);
     }
-    String::from_utf8(bytes.to_vec()).map_err(|_| "body is not valid utf-8".to_string())
+    String::from_utf8(buf).map_err(|_| "body is not valid utf-8".to_string())
 }

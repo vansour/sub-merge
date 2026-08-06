@@ -70,8 +70,13 @@ async fn rotate_config(
             "combined_name must match [A-Za-z0-9-_]",
         ));
     }
+    // 应用顺序：先写无害字段（combined_name），再执行破坏性轮换。任一步写库失败
+    // 返回 500 时，绝不能出现"admin token 已轮换但响应丢失"的锁死状态。
+    if let Some(n) = &body.combined_name {
+        crate::db::set_setting(&state.pool, "combined_name", n).await?;
+    }
     match body.rotate.as_deref() {
-        // 订阅 token 已随订阅 token 移除；rotate 仅接受 admin。
+        // 订阅 token 已移除；rotate 仅接受 admin。
         Some("admin") => {
             let t = crate::db::gen_token();
             crate::db::set_setting(&state.pool, "admin_token", &t).await?;
@@ -81,9 +86,6 @@ async fn rotate_config(
             return Err(ApiError::bad_request("rotate must be 'admin'"));
         }
         None => {}
-    }
-    if let Some(n) = &body.combined_name {
-        crate::db::set_setting(&state.pool, "combined_name", n).await?;
     }
     Ok(Json(config_dto(&state).await?))
 }
