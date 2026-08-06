@@ -9,6 +9,7 @@ use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toas
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use submerge_web_core::dto::CombinedDto;
+use submerge_web_core::fmt::{kind_label, subscribe_path};
 
 pub async fn fetch_combineds(token: Option<&str>) -> Result<Vec<CombinedDto>, String> {
     let body = request("GET", "/admin/combineds", None, token).await?;
@@ -224,7 +225,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     }
                     span { "{name}" }
                     span { class: format!("badge {}", if kind == "single" { "info" } else { "off" }),
-                        if kind == "single" { "单条" } else { "远程" }
+                        {kind_label(&kind)}
                     }
                     if !s.enabled {
                         span { class: "badge off", "停用" }
@@ -251,7 +252,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             let link_buttons: Vec<Element> = ["clash", "v2ray", "singbox"]
                 .into_iter()
                 .map(|fmt| {
-                    let link = format!("{}/subscribe/{}?format={}", base, name, fmt);
+                    let link = format!("{}{}", base, subscribe_path(&name, fmt));
                     let name = name.clone();
                     let is_copied =
                         copied.read().as_ref() == Some(&(name.clone(), fmt.to_string()));

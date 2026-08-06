@@ -6,6 +6,7 @@ use crate::components::icon::{icon, Spinner};
 use crate::components::toast::{push_toast, use_toast, ToastKind};
 use dioxus::prelude::*;
 use submerge_web_core::dto::SourceDto;
+use submerge_web_core::fmt::kind_label;
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;
@@ -187,7 +188,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                     td { class: "cell-name", "{name}" }
                     td {
                         span { class: format!("badge {}", if kind == "single" { "info" } else { "off" }),
-                            if kind == "single" { "单条" } else { "远程" }
+                            {kind_label(&kind)}
                         }
                     }
                     td { class: "cell-url", title: "{url}", "{url}" }

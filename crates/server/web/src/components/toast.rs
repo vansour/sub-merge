@@ -5,13 +5,8 @@
 use crate::components::icon::icon;
 use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ToastKind {
-    Success,
-    Error,
-    Info,
-}
+use submerge_web_core::fmt::{next_toast_id, toast_class, toast_icon};
+pub use submerge_web_core::fmt::ToastKind; // 保持既有 `use crate::components::toast::ToastKind` 路径可用
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToastMsg {
@@ -20,17 +15,9 @@ pub struct ToastMsg {
     pub text: String,
 }
 
-thread_local! {
-    static NEXT_ID: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
-}
-
 /// 追加一条 toast（自动分配自增 id）。
 pub fn push_toast(mut toasts: Signal<Vec<ToastMsg>>, kind: ToastKind, text: impl Into<String>) {
-    let id = NEXT_ID.with(|c| {
-        let v = c.get();
-        c.set(v + 1);
-        v
-    });
+    let id = next_toast_id();
     toasts.write().push(ToastMsg { id, kind, text: text.into() });
 }
 
@@ -79,16 +66,8 @@ fn ToastCard(toasts: Signal<Vec<ToastMsg>>, t: ToastMsg) -> Element {
         });
     });
 
-    let icon_name = match kind {
-        ToastKind::Success => "check",
-        ToastKind::Error => "alert",
-        ToastKind::Info => "config",
-    };
-    let kind_class = match kind {
-        ToastKind::Success => "success",
-        ToastKind::Error => "error",
-        ToastKind::Info => "info",
-    };
+    let icon_name = toast_icon(kind);
+    let kind_class = toast_class(kind);
     let mut toasts = toasts.clone();
     rsx! {
         div { class: format!("toast {kind_class}"),

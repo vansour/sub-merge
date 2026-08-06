@@ -7,18 +7,7 @@ use submerge_web_core::dto::CombinedDto;
 use crate::components::icon::{icon, Spinner};
 use dioxus::prelude::*;
 use submerge_web_core::dto::PreviewResp;
-
-// 协议 → 配色（CSS --proto-0..5）。同族协议同色。
-fn proto_class(protocol: &str) -> &'static str {
-    match protocol {
-        "ss" | "ssr" => "proto-0",
-        "vmess" | "vless" => "proto-1",
-        "trojan" => "proto-2",
-        "hysteria" | "hysteria2" => "proto-3",
-        "tuic" => "proto-4",
-        _ => "proto-5",
-    }
-}
+use submerge_web_core::fmt::proto_class;
 
 #[component]
 pub fn Preview(token: Signal<Option<String>>) -> Element {

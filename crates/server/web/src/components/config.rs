@@ -7,6 +7,7 @@ use crate::components::login::write_token;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
 use dioxus::prelude::*;
 use submerge_web_core::dto::ConfigDto;
+use submerge_web_core::fmt::mask_token;
 
 #[component]
 pub fn Config(token: Signal<Option<String>>) -> Element {
@@ -88,7 +89,7 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
             if *show_admin.read() {
                 c.admin_token.clone()
             } else {
-                "••••••••".to_string()
+                mask_token(&c.admin_token).to_string()
             }
         })
         .unwrap_or_default();
