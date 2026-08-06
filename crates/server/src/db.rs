@@ -22,12 +22,18 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT NOT NULL,
             name TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'remote',
             enabled INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )",
     )
     .execute(&pool)
     .await?;
+
+    // 旧库迁移：早期版本建表无 kind 列。ALTER 失败（列已存在）忽略。
+    let _ = sqlx::query("ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'remote'")
+        .execute(&pool)
+        .await;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS settings (
@@ -65,22 +71,18 @@ pub fn gen_token() -> String {
     hex::encode(buf)
 }
 
-/// settings 表是否已初始化两个 token（用于判断是否首次启动、是否需要打印 token）。
+/// settings 表是否已初始化 admin token（用于判断是否首次启动、是否需要打印 token）。
 pub async fn tokens_initialized(pool: &SqlitePool) -> Result<bool> {
-    let row = sqlx::query(
-        "SELECT COUNT(*) AS n FROM settings WHERE key IN ('subscribe_token', 'admin_token')",
-    )
-    .fetch_one(pool)
-    .await?;
+    let row = sqlx::query("SELECT COUNT(*) AS n FROM settings WHERE key = 'admin_token'")
+        .fetch_one(pool)
+        .await?;
     let n: i64 = row.get(0);
-    Ok(n >= 2)
+    Ok(n >= 1)
 }
 
-/// 环境变量预设的初始 token（仅首次初始化时使用）。
+/// 环境变量预设的初始 admin token（仅首次初始化时使用）。
 /// 已部署实例的 token 稳定：settings 表已有值时环境变量不生效。
-pub async fn ensure_tokens(pool: &SqlitePool) -> Result<(String, String)> {
-    // 环境变量 SUB_MERGE_SUBSCRIBE_TOKEN / SUB_MERGE_ADMIN_TOKEN 可预设初始 token，
-    // 便于部署脚本可控管理；未设置则随机生成（32 字节 hex）。
+pub async fn ensure_tokens(pool: &SqlitePool) -> Result<String> {
     ensure_tokens_with(pool, |key| {
         std::env::var(format!("SUB_MERGE_{}", key.to_uppercase()))
             .ok()
@@ -93,24 +95,14 @@ pub async fn ensure_tokens(pool: &SqlitePool) -> Result<(String, String)> {
 pub async fn ensure_tokens_with(
     pool: &SqlitePool,
     initial: impl Fn(&str) -> Option<String>,
-) -> Result<(String, String)> {
-    let sub = get_setting(pool, "subscribe_token").await?;
-    let sub = match sub {
-        Some(s) => s,
-        None => {
-            let t = initial("subscribe_token").unwrap_or_else(gen_token);
-            set_setting(pool, "subscribe_token", &t).await?;
-            t
-        }
-    };
+) -> Result<String> {
     let admin = get_setting(pool, "admin_token").await?;
-    let admin = match admin {
-        Some(s) => s,
+    match admin {
+        Some(s) => Ok(s),
         None => {
             let t = initial("admin_token").unwrap_or_else(gen_token);
             set_setting(pool, "admin_token", &t).await?;
-            t
+            Ok(t)
         }
-    };
-    Ok((sub, admin))
+    }
 }

@@ -31,15 +31,18 @@ async fn db_creates_tables_and_tokens() {
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
 
-    let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
-    assert_eq!(sub.len(), 64); // 32 bytes hex
-    assert_eq!(admin.len(), 64);
-    assert_ne!(sub, admin);
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    assert_eq!(admin.len(), 64); // 32 bytes hex
 
     // 幂等：再次调用返回相同 token
-    let (sub2, admin2) = server::db::ensure_tokens(&pool).await.unwrap();
-    assert_eq!(sub, sub2);
+    let admin2 = server::db::ensure_tokens(&pool).await.unwrap();
     assert_eq!(admin, admin2);
+
+    // 订阅 token 不再写入 settings
+    let sub = server::db::get_setting(&pool, "subscribe_token")
+        .await
+        .unwrap();
+    assert!(sub.is_none(), "subscribe_token must not be initialized");
 }
 
 #[tokio::test]
@@ -48,24 +51,21 @@ async fn env_preset_tokens_used_only_on_first_init() {
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
 
-    // 首次初始化：token 来源注入预设值（对应环境变量 SUB_MERGE_*_TOKEN 的行为）
-    let (sub, admin) = server::db::ensure_tokens_with(&pool, |key| match key {
-        "subscribe_token" => Some("preset-sub-token-00000000000000000000000000000000".into()),
-        "admin_token" => Some("preset-admin-token-00000000000000000000000000000000".into()),
-        _ => None,
+    // 首次初始化：token 来源注入预设值（对应环境变量 SUB_MERGE_ADMIN_TOKEN 的行为）
+    let admin = server::db::ensure_tokens_with(&pool, |key| {
+        assert_eq!(key, "admin_token", "only admin_token is expected");
+        Some("preset-admin-token-00000000000000000000000000000000".into())
     })
     .await
     .unwrap();
-    assert_eq!(sub, "preset-sub-token-00000000000000000000000000000000");
     assert_eq!(admin, "preset-admin-token-00000000000000000000000000000000");
 
     // 已有 token 时：即使注入新预设值也不覆盖（已部署实例 token 稳定）
-    let (sub2, admin2) = server::db::ensure_tokens_with(&pool, |_| {
+    let admin2 = server::db::ensure_tokens_with(&pool, |_| {
         Some("another-preset-token-0000000000000000000000000000000".into())
     })
     .await
     .unwrap();
-    assert_eq!(sub2, sub);
     assert_eq!(admin2, admin);
 
     // 无预设值则随机生成（原行为不变）：用全新 DB 验证
@@ -73,10 +73,10 @@ async fn env_preset_tokens_used_only_on_first_init() {
         std::env::temp_dir().join(format!("submerge-test-{}-env-tokens2", std::process::id()));
     std::fs::create_dir_all(&tmp2).unwrap();
     let pool2 = test_pool(&tmp2).await;
-    let (sub3, _) = server::db::ensure_tokens_with(&pool2, |_| None)
+    let admin3 = server::db::ensure_tokens_with(&pool2, |_| None)
         .await
         .unwrap();
-    assert_eq!(sub3.len(), 64);
+    assert_eq!(admin3.len(), 64);
 }
 
 #[tokio::test]
@@ -102,7 +102,7 @@ async fn unknown_route_returns_404() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-router", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -124,7 +124,7 @@ async fn subscribe_without_token_succeeds() {
         std::env::temp_dir().join(format!("submerge-test-{}-sub-notoken", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -146,7 +146,7 @@ async fn subscribe_wrong_combined_name_returns_404() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-404", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -185,7 +185,7 @@ async fn subscribe_with_valid_token_returns_subscription() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-valid", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
 
     // 插入一个指向 mock server 的源
     let url = format!("{}/sub", mock.uri());
@@ -224,7 +224,7 @@ async fn subscribe_wrong_format_returns_bad_request() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-badfmt", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -291,7 +291,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
 
     // 插入 6 个源，全部指向同一台并发计数服务器。
     for i in 0..6 {
@@ -345,7 +345,7 @@ async fn admin_requires_bearer_token() {
         std::env::temp_dir().join(format!("submerge-test-{}-admin-noauth", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -382,7 +382,7 @@ async fn admin_crud_sources() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-crud", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
@@ -495,7 +495,7 @@ async fn preview_returns_node_list() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-preview", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
         .bind(&url)
@@ -532,7 +532,7 @@ async fn config_get_and_rotate() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-config", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
@@ -626,7 +626,7 @@ async fn combined_name_rename_takes_effect() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-cfg-rename", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
@@ -682,7 +682,7 @@ async fn admin_token_rotation_takes_effect_live() {
         std::env::temp_dir().join(format!("submerge-test-{}-admin-rotate", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
@@ -770,7 +770,7 @@ async fn rejection_non_numeric_id_returns_unified_json() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-path", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
@@ -796,7 +796,7 @@ async fn rejection_malformed_json_returns_unified_json() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-json", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
@@ -832,7 +832,7 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-wg-skip", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
         .bind(&url)
@@ -878,7 +878,7 @@ async fn api_path_variants_return_json_404() {
     std::fs::write(dist.join("index.html"), "<html>sub-merge</html>").unwrap();
 
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = AppConfig {
         web_dist: dist,
         ..test_config(&tmp)
@@ -928,7 +928,7 @@ async fn static_index_served_from_dist() {
     std::fs::write(dist.join("app.css"), "body{color:red}").unwrap();
 
     let pool = test_pool(&tmp).await;
-    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = AppConfig {
         port: 0,
         db_path: tmp.join("test.db"),
@@ -1039,4 +1039,46 @@ async fn static_index_served_from_dist() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn legacy_db_without_kind_column_is_migrated() {
+    // 模拟早期版本建的表（无 kind 列）：init_db 应 ALTER 迁移成功并保留数据
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-legacy", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let db_path = tmp.join("test.db");
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_lazy_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        );
+    sqlx::query(
+        "CREATE TABLE sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT NOT NULL,
+            name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sources (url, name, enabled, created_at) VALUES ('https://old.example/sub', 'old', 1, '2026-01-01')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    // init_db 迁移后：kind 列存在、旧源默认为 remote
+    let pool = init_db(&db_path).await.unwrap();
+    let kind: String = sqlx::query_scalar("SELECT kind FROM sources WHERE name = 'old'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kind, "remote");
 }
