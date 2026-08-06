@@ -54,7 +54,11 @@ pub fn parse_trojan(uri: &str) -> Result<ProxyNode, ParseError> {
         }
     }
 
-    let tls = if matches!(security.as_str(), "tls" | "reality" | "xtls") {
+    // trojan 协议强制 TLS 承载：仅当 security=none 显式出现时关闭 TLS，
+    // 与 parse_clash_yaml 中 trojan 始终 TLS 的语义对齐。
+    let tls = if security == "none" {
+        None
+    } else {
         Some(TlsSettings {
             enabled: true,
             sni: sni.or(host.clone()),
@@ -62,8 +66,6 @@ pub fn parse_trojan(uri: &str) -> Result<ProxyNode, ParseError> {
             insecure,
             fingerprint: fp,
         })
-    } else {
-        None
     };
 
     let transport = match net.as_str() {

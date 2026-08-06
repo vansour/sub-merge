@@ -56,6 +56,17 @@ fn trojan_invalid() {
 }
 
 #[test]
+fn trojan_defaults_to_tls_without_security_param() {
+    // 标准分享格式无 security 参数：trojan 协议强制 TLS 承载
+    let n = parse_trojan("trojan://pass@1.2.3.4:443#T").unwrap();
+    let tls = n.tls.expect("trojan without security param must default to TLS");
+    assert!(tls.enabled);
+    // 显式 security=none 仍然关闭 TLS（保持序列化修复的测试语义）
+    let n2 = parse_trojan("trojan://pass@1.2.3.4:443?security=none#T").unwrap();
+    assert!(n2.tls.is_none());
+}
+
+#[test]
 fn trojan_serialize_transport_without_tls_emits_valid_query() {
     // security=none（显式关闭 TLS）+ ws 传输：query 必须以 ? 开头（回归：缺 ? 产出非法 URI）
     let n = parse_trojan(
