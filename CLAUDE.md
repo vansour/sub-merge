@@ -39,7 +39,7 @@ cd crates/server/web && dx build --web --release   # 前端唯一构建方式
 
 ## dioxus 0.8 alpha 已验证的坑（web crate 开发必读）
 
-- rsx 的 if/else 分支内**不能嵌套 `rsx!` 宏调用**，须直接写元素形式：`if cond { Spinner { size: 14 } } else { "文案" }`
+- rsx 的 if/else 分支内**不能嵌套 `rsx!` 宏调用**，须直接写元素形式：`if cond { Spinner { size: 14 } } else { "文案" }`；`match` 分支嵌套 `rsx!` 实测可编译（main.rs 的 App/MainShell 在用），但属文档禁区——重构为 if/else 会直接破坏构建，新增分支一律写元素形式
 - `Element` 是 `Result<VNode, RenderError>`，组件空渲染用 `VNode::empty()`（不是 `return None`）
 - `use_effect` 无依赖数组（每次渲染都跑），需要一次性逻辑时用信号做守卫
 - `EventHandler<T> = Callback<T>`；跨渲染稳定的回调用 `use_callback` 创建，不要直接在 render 体 `EventHandler::new`

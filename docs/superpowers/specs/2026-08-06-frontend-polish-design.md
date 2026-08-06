@@ -39,24 +39,30 @@
 |-------|------|------|
 | --bg | #f6f7f9 | #0f1115 |
 | --bg-elevated（侧边栏） | #ffffff | #13151b |
+| --bg-soft（hover/次要底） | #eef0f3 | #1d2128 |
 | --card | #ffffff | #17191f |
 | --text | #17181c | #e6e8ee |
-| --text-secondary | #6b7280 | #9aa1ad |
-| --text-tertiary（占位/禁用） | #9ca3af | #6b7280 |
-| --border | #e5e7eb | #262a33 |
+| --text-secondary | #5f6672 | #9aa1ad |
+| --text-tertiary（占位/禁用） | #9ca3af | #636b78 |
+| --border | #e4e7ec | #262a33 |
 | --accent | #2563eb | #38bdf8 |
 | --accent-hover | #1d4ed8 | #7dd3fc |
-| --accent-soft（强调色浅底） | #eff6ff | #10233f |
+| --accent-contrast（accent 上文字） | #ffffff | #0b1220 |
+| --accent-soft（强调色浅底） | #e8f0fe | #13253f |
 | --success | #16a34a | #4ade80 |
-| --success-soft | #f0fdf4 | #12271a |
+| --success-soft | #e9f9ef | #12301e |
 | --danger | #dc2626 | #f87171 |
-| --danger-soft | #fef2f2 | #2a1517 |
-| --warning | #d97706 | #fbbf24 |
-| --warning-soft | #fffbeb | #2a2110 |
+| --danger-soft | #fdecec | #331c1e |
+| --danger-btn / -hover | #dc2626 / #b91c1c | #932727 / #a83434 |
+| --warning | #b45309 | #fbbf24 |
+| --warning-soft | #fdf3e3 | #322712 |
 | --radius-card | 10px | 同 |
 | --radius-control | 6px | 同 |
-| --shadow-card | 0 1px 3px rgba(0,0,0,.08) | 0 1px 3px rgba(0,0,0,.4) |
-| --font-mono | ui-monospace, SFMono-Regular, Consolas, monospace | 同 |
+| --shadow-card | 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06) | 0 1px 2px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.5) |
+| --font-mono | ui-monospace, SFMono-Regular, Menlo, Consolas, monospace | 同 |
+| --proto-0..5（协议徽章） | 6 组柔和底色 + 深色字 | 同色系暗底 + 提亮字 |
+
+> 注：本表为**最终实现值**（与最初计划值存在同族色系微调：--text-secondary、--accent-soft、--warning、--border、各 -soft 底、--shadow-card 双阴影、--font-mono 增 Menlo，另增 --bg-soft/--accent-contrast/--danger-btn/--proto-*）。实现时以 `crates/server/web/index.html` 为准。
 
 - 字号层级：页面标题 20px/600、小节标题 15px/600、正文 14px、表格 13px、徽章/说明 12px
 - 颜色/背景过渡 150ms，主题切换平滑
