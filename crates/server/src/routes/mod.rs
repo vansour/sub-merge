@@ -22,7 +22,9 @@ pub async fn build_router(
         .merge(preview::router())
         .merge(config::router());
 
-    api.route("/", get(|| async { "sub-merge is running" }))
+    // 根路径不注册显式路由：由 fallback 返回 SPA index.html（浏览器直接打开 / 即见管理界面）。
+    // 健康检查走 /healthz。
+    api.route("/healthz", get(|| async { "sub-merge is running" }))
         .fallback(crate::r#static::fallback)
         .with_state(state)
 }

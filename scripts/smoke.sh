@@ -83,11 +83,16 @@ for i in $(seq 1 40); do
 done
 printf 'server 就绪\n'
 
-# ---- 4. 根路径 + 静态资源 ----
-step "4/9 根路径 + 静态资源"
-health="$(curl -sf "http://127.0.0.1:$SERVER_PORT/")"
-grep -q "sub-merge is running" <<<"$health" || fail "根路径健康检查：$health"
-printf 'GET /          → OK (%s)\n' "$(head -c 40 <<<"$health")"
+# ---- 4. 健康检查 + 根路径 SPA + 静态资源 ----
+step "4/9 健康检查 + 根路径 + 静态资源"
+health="$(curl -sf "http://127.0.0.1:$SERVER_PORT/healthz")"
+grep -q "sub-merge is running" <<<"$health" || fail "健康检查：$health"
+printf 'GET /healthz   → OK (%s)\n' "$(head -c 40 <<<"$health")"
+
+# 根路径必须返回 SPA（浏览器直接打开 / 即见管理界面），而非健康检查文本
+root_spa="$(curl -sf "http://127.0.0.1:$SERVER_PORT/")"
+grep -q "sub-merge" <<<"$root_spa" || fail "GET / 未返回 SPA index.html"
+printf 'GET /          → SPA index.html\n'
 
 curl -sf "http://127.0.0.1:$SERVER_PORT/index.html" -o "$TMP_DIR/spa-index.html"
 grep -q "sub-merge" "$TMP_DIR/spa-index.html" || fail "/index.html 未包含 SPA 标题"

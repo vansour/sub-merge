@@ -749,7 +749,24 @@ async fn static_index_served_from_dist() {
     };
     let app = server::routes::build_router(pool, cfg.clone(), admin.clone()).await;
 
-    // 根路由仍返回健康检查文本（不经过 fallback）
+    // 健康检查走 /healthz（不经过 fallback）
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(&bytes[..], b"sub-merge is running");
+
+    // 根路径返回 SPA index.html（fallback 接管，浏览器直接打开 / 即见管理界面）
     let resp = app
         .clone()
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -759,7 +776,7 @@ async fn static_index_served_from_dist() {
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert_eq!(&bytes[..], b"sub-merge is running");
+    assert_eq!(&bytes[..], b"<html>sub-merge</html>");
 
     // 静态资源从 dist 目录提供，带正确的 content-type
     let resp = app

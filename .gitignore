@@ -2,3 +2,9 @@
 target/
 # web crate 构建产物 symlink（dx 0.8 输出固定到 target/dx/...，dist 是指向它的 symlink）
 crates/server/web/dist
+# compose bind mount 数据目录（SQLite DB 含 token，禁止入库）
+submerge-data/
+# SQLite 数据文件
+*.db
+*.db-wal
+*.db-shm
