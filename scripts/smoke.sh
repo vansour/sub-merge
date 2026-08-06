@@ -7,10 +7,11 @@
 #   2. server 以 WEB_DIST 指向 dist 启动（临时 DB、随机端口）
 #   3. curl 根路径（health）→ "sub-merge is running"
 #   4. curl 静态资源 index.html / wasm js / wasm binary → 200
-#   5. /api/admin/config（Bearer）→ 返回 subscribe_token/admin_token
-#   6. 加一个本地 fixture 订阅源 → /api/subscribe?token=..&format=clash 输出节点
-#   7. 未授权 subscribe → 401
-#   8. SPA 回退
+#   5. /admin/config（Bearer）→ 返回 admin_token/combined_name/subscribe_url
+#   6. 加 fixture 订阅源 + 单条节点源 → /subscribe/merged（无 token）输出节点
+#   7. 组合订阅名不匹配 → 404
+#   8. 未知 /admin/* → JSON 404（不回退 SPA）
+#   9. SPA 回退
 #
 # 用法：bash scripts/smoke.sh
 set -euo pipefail
@@ -113,52 +114,54 @@ wasm_bytes="$(wc -c < "$TMP_DIR/spa-wasm.bin")"
 printf 'GET %s → 200 OK (%s bytes)\n' "$spa_wasm" "$wasm_bytes"
 
 # ---- 5. 管理接口（login 用同一 Bearer 校验）----
-step "5/9 管理接口 /api/admin/config"
-unauth_code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/api/admin/config")"
-[[ "$unauth_code" == "401" ]] || fail "无 token 访问 /api/admin/config 期望 401，实际 $unauth_code"
+step "5/9 管理接口 /admin/config"
+unauth_code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/admin/config")"
+[[ "$unauth_code" == "401" ]] || fail "无 token 访问 /admin/config 期望 401，实际 $unauth_code"
 
-# 从日志拿不到 token（debug 级别），直接查 DB 的 settings 表拿 admin/subscribe token
+# 从日志拿不到 token（debug 级别），直接查 DB 的 settings 表拿 admin token
 ADMIN_TOKEN="$(python3 - "$TMP_DIR/submerge-smoke.db" <<'PY'
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 print(db.execute("SELECT value FROM settings WHERE key='admin_token'").fetchone()[0])
 PY
 )"
-SUB_TOKEN="$(python3 - "$TMP_DIR/submerge-smoke.db" <<'PY'
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-print(db.execute("SELECT value FROM settings WHERE key='subscribe_token'").fetchone()[0])
-PY
-)"
-[[ -n "$ADMIN_TOKEN" && -n "$SUB_TOKEN" ]] || fail "DB 中未生成 token"
-cfg="$(curl -sf "http://127.0.0.1:$SERVER_PORT/api/admin/config" -H "Authorization: Bearer $ADMIN_TOKEN")"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["subscribe_token"]==sys.argv[1], "config token 不匹配"; assert d["admin_token"]==sys.argv[2]; print("config 返回 token 一致")' <<<"$cfg" "$SUB_TOKEN" "$ADMIN_TOKEN"
-printf 'GET /api/admin/config（Bearer）→ 200 OK, token 一致\n'
+[[ -n "$ADMIN_TOKEN" ]] || fail "DB 中未生成 admin token"
+cfg="$(curl -sf "http://127.0.0.1:$SERVER_PORT/admin/config" -H "Authorization: Bearer $ADMIN_TOKEN")"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["admin_token"]==sys.argv[1], "admin token 不匹配"; assert d["combined_name"]=="merged", d; assert d["subscribe_url"]=="/subscribe/merged", d; print("config OK")' <<<"$cfg" "$ADMIN_TOKEN"
+printf 'GET /admin/config（Bearer）→ 200 OK, token 一致\n'
 
-# ---- 6. 加订阅源 → 订阅输出 ----
-step "6/9 加订阅源 → /api/subscribe"
-created="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/api/admin/sources" \
+# ---- 6. 加订阅源 → 组合订阅输出 ----
+step "6/9 加订阅源 → /subscribe/merged"
+created="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/sources" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"url\":\"http://127.0.0.1:$FIXTURE_PORT/sub.txt\",\"name\":\"fixture\"}")"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["enabled"]==True; assert d["name"]=="fixture"; print("source id=%d"%d["id"])' <<<"$created"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["enabled"]==True; assert d["name"]=="fixture"; assert d["kind"]=="remote", d; print("source id=%d"%d["id"])' <<<"$created"
 
-clash_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/api/subscribe?token=$SUB_TOKEN&format=clash")"
-grep -q "fixture-node" <<<"$clash_out" || fail "/api/subscribe 未输出 fixture-node"
-grep -q "proxies:" <<<"$clash_out" || fail "/api/subscribe 未输出 proxies 段"
-printf 'GET /api/subscribe?format=clash → 200 OK, 含 fixture-node\n'
+# 单条节点源（无网络依赖，指向必然失败的地址也不会被拉取）
+created_single="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/sources" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#single-node","name":"single","kind":"single"}')"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["kind"]=="single", d; print("single source id=%d"%d["id"])' <<<"$created_single"
 
-# ---- 7. 未授权 subscribe ----
-step "7/9 未授权 subscribe 拒绝"
-unauth_sub="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/api/subscribe?token=wrong&format=clash")"
-[[ "$unauth_sub" == "401" ]] || fail "错误 token 期望 401，实际 $unauth_sub"
-printf 'GET /api/subscribe（错误 token）→ 401\n'
+clash_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=clash")"
+grep -q "fixture-node" <<<"$clash_out" || fail "/subscribe/merged 未输出 fixture-node"
+grep -q "single-node" <<<"$clash_out" || fail "/subscribe/merged 未输出 single-node"
+grep -q "proxies:" <<<"$clash_out" || fail "/subscribe/merged 未输出 proxies 段"
+printf 'GET /subscribe/merged?format=clash → 200 OK, 含 fixture-node + single-node\n'
 
-# ---- 8. 未知 API 404 而非 SPA 回退 ----
-step "8/9 未知 /api/* 返回 JSON 404"
-api404="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/api/nope")"
-[[ "$api404" == "404" ]] || fail "未知 /api/* 期望 404，实际 $api404"
-printf 'GET /api/nope → 404（不回退 SPA）\n'
+# ---- 7. 组合订阅名不匹配 404 ----
+step "7/9 错误组合名 404"
+wrong_sub="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/subscribe/not-a-sub?format=clash")"
+[[ "$wrong_sub" == "404" ]] || fail "错误组合名期望 404，实际 $wrong_sub"
+printf 'GET /subscribe/not-a-sub → 404\n'
+
+# ---- 8. 未知 API 命名空间 404 而非 SPA 回退 ----
+step "8/9 未知 /admin/* 返回 JSON 404"
+admin404="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/admin/nope")"
+[[ "$admin404" == "404" ]] || fail "未知 /admin/* 期望 404，实际 $admin404"
+printf 'GET /admin/nope → 404（不回退 SPA）\n'
 
 # ---- 9. SPA 回退 ----
 step "9/9 SPA 回退"

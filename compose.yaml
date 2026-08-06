@@ -8,7 +8,6 @@ services:
     volumes:
       - ./submerge-data:/app/data
     restart: unless-stopped
-    # 可选：预设初始 token（仅首次初始化时生效，之后删除即可）
+    # 可选：预设初始 admin token（仅首次初始化时生效，之后删除即可）
     # environment:
     #   SUB_MERGE_ADMIN_TOKEN: your-admin-token
-    #   SUB_MERGE_SUBSCRIBE_TOKEN: your-sub-token

@@ -9,7 +9,7 @@ sub-merge：订阅链接聚合与转换工具。聚合多个订阅源，实时�
 ## 架构
 
 - `crates/proxy-core`：纯逻辑。11 种协议解析（ss/ssr/socks5/http/vmess/vless/trojan/hysteria/hysteria2/tuic/wireguard）、3 种格式序列化（clash/v2ray/singbox）。协议/格式的单元测试与 roundtrip/proptest 测试在此。
-- `crates/server`：axum 服务。SQLite（sqlx）持久化 sources/settings。路由：`/api/subscribe`（订阅输出，token 鉴权）、`/api/admin/*`（源 CRUD/预览/配置，Bearer 鉴权）、`/healthz`；SPA 静态托管 + 前端路由回退。
+- `crates/server`：axum 服务。SQLite（sqlx）持久化 sources/settings。路由：`/subscribe/{name}`（组合订阅输出，无鉴权）、`/admin/*`（源 CRUD/预览/配置，Bearer 鉴权）；`/healthz`；SPA 静态托管 + 前端路由回退。
 - `crates/server/web`（submerge-web）：**独立于 workspace**（不加入 members，避免 dx build 与 cargo build --workspace 冲突），只能由 dx 构建。dioxus 0.8.0-alpha.1（精确版本锁定）+ WASM。样式全部在 `index.html` 内联 CSS（CSS 变量双主题，`prefers-color-scheme` 自动切换）。
 
 ## 常用命令
@@ -57,6 +57,6 @@ cd crates/server/web && dx build --web --release   # 前端唯一构建方式
 | TIMEOUT_SECS | 15 | 单源超时 |
 | MAX_NODES | 2000 | 节点总数上限 |
 | WEB_DIST | ./web/dist | 前端静态资源目录（git-ignored symlink → dx 构建产物） |
-| SUB_MERGE_ADMIN_TOKEN / SUB_MERGE_SUBSCRIBE_TOKEN | 随机生成 | 预设初始 token（仅首次初始化时生效，已部署实例不受影响） |
+| SUB_MERGE_ADMIN_TOKEN | 随机生成 | 预设初始 admin token（仅首次初始化时生效，已部署实例不受影响） |
 
 首次启动日志打印一次随机 token（重启不重复）；部署时用上述 `SUB_MERGE_*_TOKEN` 预设。管理接口一律 `Authorization: Bearer <admin_token>`。
