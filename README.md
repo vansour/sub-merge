@@ -10,6 +10,7 @@
 - 3 种输出格式：Clash / V2Ray / Sing-box
 - 输入支持：V2Ray base64 订阅、明文 URI 列表、Clash YAML（`proxies` 段）
 - 管理界面（WASM）：订阅源 CRUD、转换预览、订阅链接复制、token 轮换
+- 多个组合订阅：每组合从源中勾选成员（多对多），独立命名订阅链接（/subscribe/{name}），组合订阅管理在侧边栏「组合订阅」页
 
 ## 快速开始
 
@@ -70,7 +71,7 @@ docker compose up -d --build
 GET /subscribe/{name}?format=clash|v2ray|singbox
 ```
 
-`{name}` 为组合订阅名（settings 中 `combined_name`，默认 `merged`，配置页可改）；`format` 缺省为 `clash`。无鉴权。名字不匹配返回 404；全部源失败时返回 502 并附错误明细。
+`{name}` 为组合订阅名（在 `/admin/combineds` 中定义）；`format` 缺省为 `clash`，无鉴权。名字不匹配返回 404；组合无成员时输出空配置（200）；全部成员源失败时返回 502 并附错误明细。
 
 ### 管理接口（`Authorization: Bearer <管理token>`）
 
@@ -79,8 +80,10 @@ GET /subscribe/{name}?format=clash|v2ray|singbox
 | GET/POST | /admin/sources | 列表 / 添加订阅源（`kind`: `single` 单条节点 \| `remote` 远程订阅，缺省 remote） |
 | PUT/DELETE | /admin/sources/{id} | 更新（url/name/kind/enabled）/ 删除 |
 | POST | /admin/sources/{id}/refresh | 手动刷新单源 |
-| GET | /admin/preview | 转换结果预览（节点列表 + 源错误） |
-| GET/PUT | /admin/config | 获取配置 / 轮换 admin token、修改组合订阅名 |
+| GET | /admin/preview | 转换结果预览（节点列表 + 源错误；`?combined=<name>` 按组合成员过滤） |
+| GET/POST | /admin/combineds | 组合订阅列表 / 创建（`source_ids` 成员源数组） |
+| PUT/DELETE | /admin/combineds/{id} | 更新（名字/成员全量替换）/ 删除 |
+| GET/PUT | /admin/config | 获取配置 / 轮换 admin token |
 
 ### 注意：V2Ray 格式的节点覆盖
 

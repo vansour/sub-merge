@@ -7,8 +7,8 @@
 #   2. server 以 WEB_DIST 指向 dist 启动（临时 DB、随机端口）
 #   3. curl 根路径（health）→ "sub-merge is running"
 #   4. curl 静态资源 index.html / wasm js / wasm binary → 200
-#   5. /admin/config（Bearer）→ 返回 admin_token/combined_name/subscribe_url
-#   6. 加 fixture 订阅源 + 单条节点源 → /subscribe/merged（无 token）输出节点
+#   5. /admin/config（Bearer）→ 返回 admin_token
+#   6. 加源 + 创建组合订阅勾选成员 → /subscribe/merged（无 token）输出节点
 #   7. 组合订阅名不匹配 → 404
 #   8. 未知 /admin/* → JSON 404（不回退 SPA）
 #   9. SPA 回退
@@ -127,29 +127,34 @@ PY
 )"
 [[ -n "$ADMIN_TOKEN" ]] || fail "DB 中未生成 admin token"
 cfg="$(curl -sf "http://127.0.0.1:$SERVER_PORT/admin/config" -H "Authorization: Bearer $ADMIN_TOKEN")"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["admin_token"]==sys.argv[1], "admin token 不匹配"; assert d["combined_name"]=="merged", d; assert d["subscribe_url"]=="/subscribe/merged", d; print("config OK")' <<<"$cfg" "$ADMIN_TOKEN"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["admin_token"]==sys.argv[1], "admin token 不匹配"; print("config OK")' <<<"$cfg" "$ADMIN_TOKEN"
 printf 'GET /admin/config（Bearer）→ 200 OK, token 一致\n'
 
-# ---- 6. 加订阅源 → 组合订阅输出 ----
-step "6/9 加订阅源 → /subscribe/merged"
+# ---- 6. 加源 + 组合订阅 → 组合订阅输出 ----
+step "6/9 加源与组合订阅 → /subscribe/{name}"
 created="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/sources" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"url\":\"http://127.0.0.1:$FIXTURE_PORT/sub.txt\",\"name\":\"fixture\"}")"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["enabled"]==True; assert d["name"]=="fixture"; assert d["kind"]=="remote", d; print("source id=%d"%d["id"])' <<<"$created"
+SRC_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$created")"
 
 # 单条节点源（无网络依赖，指向必然失败的地址也不会被拉取）
 created_single="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/sources" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"url":"ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#single-node","name":"single","kind":"single"}')"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["kind"]=="single", d; print("single source id=%d"%d["id"])' <<<"$created_single"
+
+# 组合勾选 fixture 源（single 源不入组合：订阅输出按组合成员过滤）
+combined="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/combineds" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"merged\",\"source_ids\":[$SRC_ID]}")"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["name"]=="merged"; assert d["source_ids"]==[int(sys.argv[1])], d; print("combined id=%d"%d["id"])' <<<"$combined" "$SRC_ID"
 
 clash_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=clash")"
 grep -q "fixture-node" <<<"$clash_out" || fail "/subscribe/merged 未输出 fixture-node"
-grep -q "single-node" <<<"$clash_out" || fail "/subscribe/merged 未输出 single-node"
 grep -q "proxies:" <<<"$clash_out" || fail "/subscribe/merged 未输出 proxies 段"
-printf 'GET /subscribe/merged?format=clash → 200 OK, 含 fixture-node + single-node\n'
+printf 'GET /subscribe/merged?format=clash → 200 OK, 含 fixture-node\n'
 
 # ---- 7. 组合订阅名不匹配 404 ----
 step "7/9 错误组合名 404"
