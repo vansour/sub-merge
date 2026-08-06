@@ -5,3 +5,4 @@ pub mod icon;
 pub mod login;
 pub mod preview;
 pub mod sources;
+pub mod toast;
