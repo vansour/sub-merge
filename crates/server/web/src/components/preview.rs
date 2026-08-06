@@ -47,7 +47,7 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         async move {
             loading.set(true);
             error.set(String::new());
-            match request("GET", "/api/admin/preview", None, token.as_deref()).await {
+            match request("GET", "/admin/preview", None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
                     Ok(r) => data.set(Some(r)),
                     Err(e) => error.set(format!("解析失败: {}", e)),
@@ -66,7 +66,7 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
         spawn(async move {
             loading.set(true);
             error.set(String::new());
-            match request("GET", "/api/admin/preview", None, token.as_deref()).await {
+            match request("GET", "/admin/preview", None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
                     Ok(r) => data.set(Some(r)),
                     Err(e) => error.set(format!("解析失败: {}", e)),

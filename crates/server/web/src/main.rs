@@ -26,7 +26,7 @@ fn App() -> Element {
         let mut checking = checking;
         async move {
             if let Some(t) = token() {
-                match request("GET", "/api/admin/config", None, Some(&t)).await {
+                match request("GET", "/admin/config", None, Some(&t)).await {
                     Ok(_) => {} // 有效，保留
                     Err(_) => {
                         clear_token();

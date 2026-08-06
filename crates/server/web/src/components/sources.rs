@@ -1,5 +1,5 @@
 // crates/server/web/src/components/sources.rs
-// Task 3：订阅源 CRUD + 刷新。与后端 /api/admin/sources 交互。
+// Task 3：订阅源 CRUD + 刷新。与后端 /admin/sources 交互。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::icon::{icon, Spinner};
@@ -12,6 +12,7 @@ pub struct SourceDto {
     pub id: i64,
     pub url: String,
     pub name: String,
+    pub kind: String,
     pub enabled: bool,
     // 后端返回的字段，作为 API 契约保留；UI 表格暂不展示。
     #[allow(dead_code)]
@@ -19,7 +20,7 @@ pub struct SourceDto {
 }
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
-    let body = request("GET", "/api/admin/sources", None, token).await?;
+    let body = request("GET", "/admin/sources", None, token).await?;
     serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
 }
 
@@ -29,6 +30,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     let mut error = use_signal(String::new);
     let mut new_url = use_signal(String::new);
     let mut new_name = use_signal(String::new);
+    let mut new_kind = use_signal(|| "remote".to_string());
     let mut adding = use_signal(|| false);
     let mut refreshing = use_signal(std::collections::HashSet::<i64>::new);
     let mut confirm = use_signal(ConfirmState::default);
@@ -51,12 +53,13 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     let add = move |_| {
         let url = new_url.read().clone();
         let name = new_name.read().clone();
+        let kind = new_kind.read().clone();
         if url.is_empty() || name.is_empty() {
             error.set("URL 和名称不能为空".into());
             return;
         }
         let token = token.read().clone();
-        let body = serde_json::json!({ "url": url, "name": name }).to_string();
+        let body = serde_json::json!({ "url": url, "name": name, "kind": kind }).to_string();
         let mut sources = sources.clone();
         let mut new_url = new_url.clone();
         let mut new_name = new_name.clone();
@@ -65,7 +68,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         let mut toasts = toasts.clone();
         adding.set(true);
         spawn(async move {
-            match request("POST", "/api/admin/sources", Some(body), token.as_deref()).await {
+            match request("POST", "/admin/sources", Some(body), token.as_deref()).await {
                 Ok(_) => {
                     match fetch_sources(token.as_deref()).await {
                         Ok(list) => {
@@ -91,7 +94,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         let mut error = error.clone();
         let mut toasts = toasts.clone();
         spawn(async move {
-            match request("PUT", &format!("/api/admin/sources/{id}"), Some(body), token.as_deref()).await {
+            match request("PUT", &format!("/admin/sources/{id}"), Some(body), token.as_deref()).await {
                 Ok(_) => {
                     match fetch_sources(token.as_deref()).await {
                         Ok(list) => {
@@ -115,7 +118,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         let mut refreshing = refreshing.clone();
         let mut toasts = toasts.clone();
         spawn(async move {
-            match request("POST", &format!("/api/admin/sources/{id}/refresh"), None, token.as_deref()).await {
+            match request("POST", &format!("/admin/sources/{id}/refresh"), None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
                     Ok(v) => {
                         let name = v.get("source").and_then(|s| s.as_str()).unwrap_or("该源");
@@ -164,7 +167,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             let mut error = error.clone();
             let mut toasts = toasts.clone();
             spawn(async move {
-                match request("DELETE", &format!("/api/admin/sources/{id}"), None, token.as_deref()).await {
+                match request("DELETE", &format!("/admin/sources/{id}"), None, token.as_deref()).await {
                     Ok(_) => {
                         match fetch_sources(token.as_deref()).await {
                             Ok(list) => {
@@ -188,11 +191,17 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             let id = s.id;
             let enabled = s.enabled;
             let name = s.name.clone();
+            let kind = s.kind.clone();
             let url = s.url.clone();
             let busy = refreshing.read().contains(&id);
             rsx! {
                 tr {
                     td { class: "cell-name", "{name}" }
+                    td {
+                        span { class: format!("badge {}", if kind == "single" { "info" } else { "off" }),
+                            if kind == "single" { "单条" } else { "远程" }
+                        }
+                    }
                     td { class: "cell-url", title: "{url}", "{url}" }
                     td {
                         span { class: format!("badge {}", if enabled { "on" } else { "off" }),
@@ -236,10 +245,23 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             h2 { class: "card-title", "添加订阅源" }
             div { class: "form-row",
                 div { class: "field",
+                    label { "类型" }
+                    select {
+                        value: new_kind,
+                        onchange: move |e| new_kind.set(e.value()),
+                        option { value: "remote", "远程订阅（订阅链接）" }
+                        option { value: "single", "单条节点（URI）" }
+                    }
+                }
+                div { class: "field",
                     label { "订阅 URL" }
                     input {
                         class: "mono",
-                        placeholder: "https://example.com/sub",
+                        placeholder: if *new_kind.read() == "single" {
+                            "ss://..., vmess://... 单条节点链接"
+                        } else {
+                            "https://example.com/sub"
+                        },
                         value: new_url,
                         oninput: move |e| new_url.set(e.value()),
                     }
@@ -274,7 +296,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                 div { class: "table-wrap",
                     table {
                         thead {
-                            tr { th { "名称" } th { "URL" } th { "状态" } th { "操作" } }
+                            tr { th { "名称" } th { "类型" } th { "URL" } th { "状态" } th { "操作" } }
                         }
                         tbody {
                             {rows.into_iter()}

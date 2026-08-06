@@ -36,8 +36,8 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
         let token = input.read().clone();
         loading.set(true);
         spawn(async move {
-            // 用 GET /api/admin/config 验证 token 有效性
-            match request("GET", "/api/admin/config", None, Some(&token)).await {
+            // 用 GET /admin/config 验证 token 有效性
+            match request("GET", "/admin/config", None, Some(&token)).await {
                 Ok(_) => on_login.call(token),
                 Err(e) => error.set(format!("登录失败: {}", e)),
             }

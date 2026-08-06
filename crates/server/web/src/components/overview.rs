@@ -15,7 +15,7 @@ struct PreviewSummary {
 }
 
 async fn fetch_preview(token: Option<&str>) -> Result<PreviewSummary, String> {
-    let body = request("GET", "/api/admin/preview", None, token).await?;
+    let body = request("GET", "/admin/preview", None, token).await?;
     serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
 }
 
