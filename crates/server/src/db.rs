@@ -12,7 +12,8 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
         .filename(path)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .busy_timeout(std::time::Duration::from_secs(5));
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .foreign_keys(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(8)
         .connect_lazy_with(opts);
@@ -45,6 +46,28 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
+    // 组合订阅：名称唯一；成员为源的子集（多对多）
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS combined_subs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
+    // 多对多关联：删组合/删源均级联清理（依赖 foreign_keys = ON）
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS combined_sources (
+            combined_id INTEGER NOT NULL REFERENCES combined_subs(id) ON DELETE CASCADE,
+            source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+            PRIMARY KEY (combined_id, source_id)
         )",
     )
     .execute(&pool)

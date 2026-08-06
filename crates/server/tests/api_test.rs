@@ -1361,3 +1361,77 @@ async fn refresh_single_source_reports_locally() {
         v["reason"]
     );
 }
+
+#[tokio::test]
+async fn combined_tables_and_cascade() {
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-combined-tbl", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+
+    // 建一个源 + 两个组合，源被两个组合共享
+    let res = sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S', 's', 1, 'now')")
+        .execute(&pool).await.unwrap();
+    let src_id = res.last_insert_rowid();
+    let res = sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('a', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let ca = res.last_insert_rowid();
+    let res = sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('b', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cb = res.last_insert_rowid();
+    for cid in [ca, cb] {
+        sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+            .bind(cid)
+            .bind(src_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    // 删除源 → 两个组合的成员关系都被级联清理
+    sqlx::query("DELETE FROM sources WHERE id = ?")
+        .bind(src_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM combined_sources WHERE source_id = ?")
+        .bind(src_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 0, "source deletion must cascade to combined_sources");
+
+    // 删组合 a → 其成员关系清理（b 不受影响——重新插回源再验证）
+    let res = sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S2', 's2', 1, 'now')")
+        .execute(&pool).await.unwrap();
+    let src2 = res.last_insert_rowid();
+    for cid in [ca, cb] {
+        sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+            .bind(cid)
+            .bind(src2)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM combined_subs WHERE id = ?")
+        .bind(ca)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM combined_sources WHERE combined_id = ?")
+        .bind(ca)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 0, "combined deletion must cascade members");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM combined_sources WHERE combined_id = ?")
+        .bind(cb)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 1, "other combined must keep its member");
+}
