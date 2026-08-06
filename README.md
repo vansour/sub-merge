@@ -17,10 +17,17 @@
 make run          # 构建前端并启动（首次运行自动建库并生成 token）
 ```
 
-默认监听 `:8080`。管理 token 在 debug 日志中（`RUST_LOG=debug make run`），或直接查库：
+默认监听 `:8080`。管理 token 的获取方式：
 
 ```bash
-sqlite3 submerge.db "SELECT * FROM settings;"
+# 方式 1：部署时用环境变量预设初始 token（推荐，可控可管理）
+SUB_MERGE_ADMIN_TOKEN=your-admin-token SUB_MERGE_SUBSCRIBE_TOKEN=your-sub-token make run
+
+# 方式 2：首次启动后查库（compose bind mount 场景）
+python3 -c "import sqlite3; db=sqlite3.connect('submerge-data/submerge.db'); [print(k,'=',v) for k,v in db.execute('SELECT key,value FROM settings')]"
+
+# 方式 3：debug 日志（token 仅 debug 级别输出，防公网日志泄漏）
+RUST_LOG=debug make run
 ```
 
 浏览器打开 `http://<host>:8080`，输入管理 token 进入管理界面。
@@ -50,6 +57,10 @@ docker compose up -d --build
 | TIMEOUT_SECS | 15 | 单源超时 |
 | MAX_NODES | 2000 | 节点总数上限 |
 | WEB_DIST | ./web/dist | 前端静态资源目录 |
+| SUB_MERGE_SUBSCRIBE_TOKEN | 随机生成 | 预设初始订阅 token（仅首次初始化时生效） |
+| SUB_MERGE_ADMIN_TOKEN | 随机生成 | 预设初始管理 token（仅首次初始化时生效） |
+
+预设 token 仅在数据库首次初始化时使用；已部署实例的 token 不受影响（settings 表已有值时不覆盖）。
 
 ## API
 

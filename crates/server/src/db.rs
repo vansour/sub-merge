@@ -65,12 +65,29 @@ pub fn gen_token() -> String {
     hex::encode(buf)
 }
 
+/// 环境变量预设的初始 token（仅首次初始化时使用）。
+/// 已部署实例的 token 稳定：settings 表已有值时环境变量不生效。
 pub async fn ensure_tokens(pool: &SqlitePool) -> Result<(String, String)> {
+    // 环境变量 SUB_MERGE_SUBSCRIBE_TOKEN / SUB_MERGE_ADMIN_TOKEN 可预设初始 token，
+    // 便于部署脚本可控管理；未设置则随机生成（32 字节 hex）。
+    ensure_tokens_with(pool, |key| {
+        std::env::var(format!("SUB_MERGE_{}", key.to_uppercase()))
+            .ok()
+            .filter(|s| !s.is_empty())
+    })
+    .await
+}
+
+/// 可注入 token 来源的 ensure_tokens（测试用；生产走环境变量预设或随机生成）。
+pub async fn ensure_tokens_with(
+    pool: &SqlitePool,
+    initial: impl Fn(&str) -> Option<String>,
+) -> Result<(String, String)> {
     let sub = get_setting(pool, "subscribe_token").await?;
     let sub = match sub {
         Some(s) => s,
         None => {
-            let t = gen_token();
+            let t = initial("subscribe_token").unwrap_or_else(gen_token);
             set_setting(pool, "subscribe_token", &t).await?;
             t
         }
@@ -79,7 +96,7 @@ pub async fn ensure_tokens(pool: &SqlitePool) -> Result<(String, String)> {
     let admin = match admin {
         Some(s) => s,
         None => {
-            let t = gen_token();
+            let t = initial("admin_token").unwrap_or_else(gen_token);
             set_setting(pool, "admin_token", &t).await?;
             t
         }

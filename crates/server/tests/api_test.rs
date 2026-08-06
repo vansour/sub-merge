@@ -43,6 +43,43 @@ async fn db_creates_tables_and_tokens() {
 }
 
 #[tokio::test]
+async fn env_preset_tokens_used_only_on_first_init() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-env-tokens", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+
+    // 首次初始化：token 来源注入预设值（对应环境变量 SUB_MERGE_*_TOKEN 的行为）
+    let (sub, admin) = server::db::ensure_tokens_with(&pool, |key| match key {
+        "subscribe_token" => Some("preset-sub-token-00000000000000000000000000000000".into()),
+        "admin_token" => Some("preset-admin-token-00000000000000000000000000000000".into()),
+        _ => None,
+    })
+    .await
+    .unwrap();
+    assert_eq!(sub, "preset-sub-token-00000000000000000000000000000000");
+    assert_eq!(admin, "preset-admin-token-00000000000000000000000000000000");
+
+    // 已有 token 时：即使注入新预设值也不覆盖（已部署实例 token 稳定）
+    let (sub2, admin2) = server::db::ensure_tokens_with(&pool, |_| {
+        Some("another-preset-token-0000000000000000000000000000000".into())
+    })
+    .await
+    .unwrap();
+    assert_eq!(sub2, sub);
+    assert_eq!(admin2, admin);
+
+    // 无预设值则随机生成（原行为不变）：用全新 DB 验证
+    let tmp2 =
+        std::env::temp_dir().join(format!("submerge-test-{}-env-tokens2", std::process::id()));
+    std::fs::create_dir_all(&tmp2).unwrap();
+    let pool2 = test_pool(&tmp2).await;
+    let (sub3, _) = server::db::ensure_tokens_with(&pool2, |_| None)
+        .await
+        .unwrap();
+    assert_eq!(sub3.len(), 64);
+}
+
+#[tokio::test]
 async fn unknown_route_returns_404() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-router", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
