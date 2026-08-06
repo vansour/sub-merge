@@ -23,6 +23,7 @@ js-sys = "0.3"
 # Task 5 需要 Clipboard（写剪贴板）/ Navigator / Location（拼订阅链接 base url）。
 web-sys = { version = "0.3", features = ["console", "Window", "Storage", "Clipboard", "Navigator", "Location"] }
 gloo-net = { version = "0.7", features = ["http"] }  # 轻量 fetch 封装
+submerge-web-core = { path = "../../web-core" }  # 前端纯逻辑（DTO/错误/映射），host 可测
 
 [profile.release]
 opt-level = "s"

@@ -2583,9 +2583,18 @@ dependencies = [
  "js-sys",
  "serde",
  "serde_json",
+ "submerge-web-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "submerge-web-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
