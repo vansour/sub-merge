@@ -6,12 +6,7 @@ use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::login::write_token;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
 use dioxus::prelude::*;
-use serde::Deserialize;
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConfigDto {
-    pub admin_token: String,
-}
+use submerge_web_core::dto::ConfigDto;
 
 #[component]
 pub fn Config(token: Signal<Option<String>>) -> Element {

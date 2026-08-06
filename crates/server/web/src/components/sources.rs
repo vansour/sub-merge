@@ -5,19 +5,7 @@ use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::icon::{icon, Spinner};
 use crate::components::toast::{push_toast, use_toast, ToastKind};
 use dioxus::prelude::*;
-use serde::Deserialize;
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SourceDto {
-    pub id: i64,
-    pub url: String,
-    pub name: String,
-    pub kind: String,
-    pub enabled: bool,
-    // 后端返回的字段，作为 API 契约保留；UI 表格暂不展示。
-    #[allow(dead_code)]
-    pub created_at: String,
-}
+use submerge_web_core::dto::SourceDto;
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;

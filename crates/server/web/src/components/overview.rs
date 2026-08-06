@@ -3,16 +3,10 @@
 // 数据来自现有两个接口（sources + preview），纯客户端聚合。
 use crate::api::request;
 use crate::components::icon::{icon, Spinner};
-use crate::components::sources::{fetch_sources, SourceDto};
+use crate::components::sources::fetch_sources;
+use submerge_web_core::dto::SourceDto;
 use dioxus::prelude::*;
-use serde::Deserialize;
-
-// 只取需要的字段；serde 默认忽略未知字段（nodes 等）。
-#[derive(Debug, Clone, Deserialize)]
-struct PreviewSummary {
-    total: usize,
-    errors: Vec<String>,
-}
+use submerge_web_core::dto::PreviewSummary;
 
 async fn fetch_preview(token: Option<&str>) -> Result<PreviewSummary, String> {
     let body = request("GET", "/admin/preview", None, token).await?;

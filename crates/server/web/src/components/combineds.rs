@@ -3,21 +3,12 @@ use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::copy_text;
 use crate::components::icon::{Spinner, icon};
-use crate::components::sources::{SourceDto, fetch_sources};
+use crate::components::sources::fetch_sources;
+use submerge_web_core::dto::SourceDto;
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
 use dioxus::prelude::*;
-use serde::Deserialize;
 use std::collections::HashSet;
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CombinedDto {
-    pub id: i64,
-    pub name: String,
-    // 后端返回的字段，作为 API 契约保留；UI 暂不展示。
-    #[allow(dead_code)]
-    pub created_at: String,
-    pub source_ids: Vec<i64>,
-}
+use submerge_web_core::dto::CombinedDto;
 
 pub async fn fetch_combineds(token: Option<&str>) -> Result<Vec<CombinedDto>, String> {
     let body = request("GET", "/admin/combineds", None, token).await?;
