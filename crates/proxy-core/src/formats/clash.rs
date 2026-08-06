@@ -26,10 +26,16 @@ pub fn serialize_clash(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
 }
 
 fn clash_yaml_str(s: &str) -> String {
-    if s.chars().any(|c| c.is_whitespace() || c == ':' || c == '#' || c == ',' || c == '[' || c == ']') {
-        format!("\"{}\"", s.replace('"', "\\\""))
-    } else {
+    // 仅含 ASCII 字母数字与 ._- 的标量可安全原样输出；其余交给 serde_yaml 生成合法标量
+    // （自动处理引号、反斜杠转义、flow indicator，防恶意节点名产出无法加载的配置）
+    if !s.is_empty()
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
         s.to_string()
+    } else {
+        serde_yaml::to_string(s)
+            .map(|v| v.trim_end().to_string()) // serde_yaml 输出带尾部换行，去掉
+            .unwrap_or_else(|_| format!("\"{}\"", s.replace('"', "\\\"")))
     }
 }
 

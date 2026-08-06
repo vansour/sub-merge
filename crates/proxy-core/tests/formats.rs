@@ -80,3 +80,27 @@ fn empty_nodes_ok() {
     assert!(serialize_clash(&[]).is_ok());
     assert!(serialize_singbox(&[]).is_ok());
 }
+
+#[test]
+fn clash_yaml_quotes_hostile_names() {
+    use proxy_core::model::{Crypto, Protocol, ProxyNode};
+    for name in ["!secret", "*alias", "a|b", "col:on", "a\"b", "{x}", "p@ss", "日本 东京"] {
+        let node = ProxyNode {
+            name: name.into(),
+            kind: Protocol::Ss,
+            server: "1.2.3.4".into(),
+            port: 8388,
+            crypto: Some(Crypto::Aes256Gcm),
+            password: Some("pw".into()),
+            ..Default::default()
+        };
+        let out = serialize_clash(&[node]).unwrap();
+        let v: serde_yaml::Value = serde_yaml::from_str(&out)
+            .unwrap_or_else(|e| panic!("output must be valid yaml for {name:?}: {e}\n{out}"));
+        assert_eq!(
+            v["proxies"][0]["name"].as_str().unwrap(),
+            name,
+            "name must roundtrip for {name:?}"
+        );
+    }
+}
