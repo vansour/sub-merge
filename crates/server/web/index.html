@@ -142,6 +142,7 @@
       outline: none; border-color: var(--accent);
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
     }
+    .field input.mono { font-family: var(--font-mono); }
     .error-text { font-size: 12.5px; color: var(--danger); margin: 4px 0 0; }
 
     /* ========== 卡片 ========== */
@@ -150,6 +151,7 @@
     .card-title { font-size: 15px; font-weight: 600; margin: 0 0 14px; }
     .card-foot { margin-top: 12px; display: flex; justify-content: flex-end; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-2 > .card { margin-top: 0; }
     .subtle { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.5; }
 
     /* ========== 统计卡片 ========== */
