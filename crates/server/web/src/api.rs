@@ -37,7 +37,7 @@ pub async fn request(
     if let Some(t) = token {
         builder = builder.header("Authorization", &format!("Bearer {}", t));
     }
-    // gloo-net 0.6: RequestBuilder::body(...) -> Result<Request, Error>
+    // gloo-net 0.7: RequestBuilder::body(...) -> Result<Request, Error>
     // 有 body 时先构建 Request，无 body 时用 send() 直接发
     let resp = if let Some(b) = body {
         let req: Request = builder
