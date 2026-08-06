@@ -68,13 +68,15 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             match request("POST", "/api/admin/sources", Some(body), token.as_deref()).await {
                 Ok(_) => {
                     match fetch_sources(token.as_deref()).await {
-                        Ok(list) => sources.set(list),
+                        Ok(list) => {
+                            sources.set(list);
+                            new_url.set(String::new());
+                            new_name.set(String::new());
+                            error.set(String::new());
+                            push_toast(toasts, ToastKind::Success, "订阅源已添加");
+                        }
                         Err(e) => error.set(e),
                     }
-                    new_url.set(String::new());
-                    new_name.set(String::new());
-                    error.set(String::new());
-                    push_toast(toasts, ToastKind::Success, "订阅源已添加");
                 }
                 Err(e) => error.set(format!("添加失败: {e}")),
             }
