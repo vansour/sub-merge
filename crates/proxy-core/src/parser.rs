@@ -61,8 +61,19 @@ fn parse_lines(text: &str, max_nodes: usize) -> (Vec<ProxyNode>, usize) {
     (nodes, skipped)
 }
 
-/// 自动识别订阅文本：尝试 base64 解码，若成功且含换行则按解码结果解析；否则按明文。
+/// 自动识别订阅文本：Clash YAML（proxies: 标志）→ base64 解码 → 明文逐行。
 pub fn parse_subscription_text(text: &str, max_nodes: usize) -> (Vec<ProxyNode>, usize) {
+    // Clash YAML 订阅：任一行 trim 后以 "proxies:" 开头则按 YAML 解析（在 base64 尝试之前，
+    // 避免 YAML 文本被误当 base64；解析失败回退逐行）
+    if text.lines().any(|l| l.trim_start().starts_with("proxies:")) {
+        return match parse_clash_yaml(text) {
+            Ok(mut nodes) => {
+                nodes.truncate(max_nodes);
+                (nodes, 0)
+            }
+            Err(_) => parse_lines(text, max_nodes),
+        };
+    }
     // 若文本看起来是纯 base64（无协议前缀），尝试整体解码
     let trimmed = text.trim();
     let looks_base64 = !trimmed.contains("://") && trimmed.len() > 16;
