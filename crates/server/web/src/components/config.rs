@@ -1,7 +1,10 @@
 // crates/server/web/src/components/config.rs
-// Task 5：配置页。拉取 /api/admin/config 展示订阅链接 + token，支持复制与轮换。
+// 配置页：订阅链接卡片（复制反馈）+ Token 管理（掩码显示 + 轮换确认）。
 use crate::api::request;
+use crate::components::confirm::{ConfirmDialog, ConfirmState};
+use crate::components::icon::icon;
 use crate::components::login::write_token;
+use crate::components::toast::{push_toast, schedule_timeout, use_toast, ToastKind};
 use dioxus::prelude::*;
 use serde::Deserialize;
 use std::rc::Rc;
@@ -32,10 +35,13 @@ fn copy_text(text: String) {
 pub fn Config(token: Signal<Option<String>>) -> Element {
     let cfg = use_signal(|| None::<ConfigDto>);
     let error = use_signal(String::new);
-    let mut copied = use_signal(String::new);
+    let mut copied = use_signal(|| None::<&'static str>);
+    let mut show_admin = use_signal(|| false);
+    let mut confirm = use_signal(ConfirmState::default);
+    let mut pending_rotate = use_signal(|| None::<&'static str>);
+    let toasts = use_toast();
 
-    // 初次挂载时加载一次。用 use_future（挂载时只跑一次），
-    // 避免计划里的 spawn-on-render 模式在每次 render 时重复发起请求。
+    // 初次挂载加载一次。
     use_future(move || {
         let token = token.read().clone();
         let mut cfg = cfg.clone();
@@ -56,6 +62,7 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         let body = serde_json::json!({ "rotate": which }).to_string();
         let mut cfg = cfg.clone();
         let mut error = error.clone();
+        let mut toasts = toasts.clone();
         // Signal 是 Copy：把 token signal 拷进闭包，rotating admin token 后同步会话。
         let mut token = token;
         spawn(async move {
@@ -63,15 +70,14 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
                 Ok(b) => match serde_json::from_str::<ConfigDto>(&b) {
                     Ok(c) => {
                         // 服务端轮换 admin token 后，旧 token 立即失效（已实测 401）。
-                        // 同步更新本地会话（localStorage + token signal），
-                        // 否则当前登录态后续所有 API 调用都会 401，且不会自动回到登录页。
+                        // 同步更新本地会话（localStorage + token signal）。
                         if which == "admin" {
                             write_token(&c.admin_token);
                             token.set(Some(c.admin_token.clone()));
                         }
-                        // 成功时清掉过期的错误提示。
                         error.set(String::new());
                         cfg.set(Some(c));
+                        push_toast(toasts, ToastKind::Success, format!("{} token 已轮换", if which == "admin" { "管理" } else { "订阅" }));
                     }
                     Err(e) => error.set(format!("解析失败: {}", e)),
                 },
@@ -80,24 +86,52 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         });
     };
 
+    let mut ask_rotate = move |which: &'static str| {
+        pending_rotate.set(Some(which));
+        let admin = which == "admin";
+        confirm.set(ConfirmState {
+            open: true,
+            title: format!("轮换{} token", if admin { "管理" } else { "订阅" }),
+            message: if admin {
+                "轮换后旧管理 token 立即失效，当前会话将自动更新为新 token。确定继续？".into()
+            } else {
+                "轮换后旧订阅 token 立即失效，所有已复制的订阅链接需要重新复制。确定继续？".into()
+            },
+            confirm_text: "轮换".into(),
+            danger: admin,
+        });
+    };
+
+    let on_confirm_rotate = use_callback(move |_: ()| {
+        confirm.set(ConfirmState::default());
+        if let Some(which) = pending_rotate() {
+            rotate(which);
+        }
+    });
+
+    let mut copy_click = move |label: &'static str, link: String| {
+        copy_text(link);
+        copied.set(Some(label));
+        let mut copied = copied.clone();
+        schedule_timeout(2000, move || {
+            copied.set(None);
+        });
+    };
+
     // base_url 取当前页面 origin（协议 + 主机 + 端口，不含路径）。
-    // 不能用 href()：页面 URL 带路径（如 /index.html）时会把路径拼进订阅链接，
-    // 得到 http://host/index.html/api/subscribe?...
+    // 不能用 href()：页面 URL 带路径（如 /index.html）时会把路径拼进订阅链接。
     let base_url = web_sys::window()
         .and_then(|w| w.location().origin().ok())
         .unwrap_or_default();
 
-    // 订阅链接在 rsx 外预计算：
-    //  - rsx 内嵌的 `format!` 含 `{}` 占位符会被 rsx 解析器误判为插值；
-    //  - `for` 循环体内也不能放 `let` 语句（dioxus rsx 解析器限制）。
-    let links: Vec<(&str, String)> = cfg
+    // 订阅链接在 rsx 外预计算（rsx 内嵌 format! 的 {} 会被误判为插值）。
+    let links: Vec<(&'static str, String)> = cfg
         .read()
         .as_ref()
         .map(|c| {
             [("Clash", "clash"), ("V2Ray", "v2ray"), ("Sing-box", "singbox")]
                 .into_iter()
                 .map(|(label, fmt)| {
-                    // subscribe_url 来自后端 DTO（"/api/subscribe"），作为 API 契约使用。
                     let link = format!("{}{}?token={}&format={}", base_url, c.subscribe_url, c.subscribe_token, fmt);
                     (label, link)
                 })
@@ -105,50 +139,84 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         })
         .unwrap_or_default();
 
-    // 复制按钮行预渲染成 owned Element，onclick 闭包里直接调 copy_text + 更新 copied，
-    // 避免引用组件作用域里的嵌套闭包（事件处理器需 'static）。
     let link_rows: Vec<Element> = links
         .iter()
         .map(|(label, link)| {
             let label = *label;
             // 事件处理器是 FnMut，会多次调用；用 Rc 在闭包内 clone，避免 move 出 captured String。
             let link_for_copy = Rc::new(link.clone());
+            let is_copied = *copied.read() == Some(label);
             rsx! {
-                div {
-                    strong { "{label} " }
-                    code { "{link}" }
+                div { class: "link-row",
+                    span { class: "link-label", "{label}" }
+                    code { class: "link-url", "{link}" }
                     button {
-                        class: "secondary",
+                        class: format!("btn btn-ghost btn-sm{}", if is_copied { " checked" } else { "" }),
                         onclick: move |_| {
-                            copy_text(link_for_copy.as_ref().clone());
-                            copied.set("已复制".into());
+                            copy_click(label, link_for_copy.as_ref().clone());
                         },
-                        "复制"
+                        {icon("copy", 13)}
+                        if is_copied { "已复制" } else { "复制" }
                     }
                 }
             }
         })
         .collect();
 
-    rsx! {
-        div { class: "card",
-            h2 { "配置" }
-            if let Some(c) = cfg.read().as_ref() {
-                h3 { "订阅链接" }
-                {link_rows.into_iter()}
-                if !copied.read().is_empty() {
-                    p { style: "color: #1a7f37", "{copied}" }
-                }
-                hr {}
-                h3 { "Token" }
-                p { "订阅 token: " code { "{c.subscribe_token}" } }
-                button { class: "secondary", onclick: move |_| rotate("subscribe"), "轮换订阅 token" }
-                p { "管理 token: " code { "{c.admin_token}" } }
-                button { class: "danger", onclick: move |_| rotate("admin"), "轮换管理 token" }
+    // 管理 token 的展示值（掩码切换）在 rsx 外预计算：
+    // rsx 文本插值 `{...}` 里不能内嵌字符串字面量——内层引号会被 rustc 词法解析截断
+    // （实测报 unknown start of token），与上方订阅链接 format! 同理。
+    let admin_token_show = cfg
+        .read()
+        .as_ref()
+        .map(|c| {
+            if *show_admin.read() {
+                c.admin_token.clone()
+            } else {
+                "••••••••".to_string()
             }
-            if !error.read().is_empty() {
-                p { style: "color: #ff3b30", "{error}" }
+        })
+        .unwrap_or_default();
+
+    let mut cfg_render = cfg.clone();
+    let mut show_admin_render = show_admin.clone();
+    rsx! {
+        div { class: "page-head",
+            h1 { class: "page-title", "配置" }
+        }
+        if let Some(c) = cfg_render.read().as_ref() {
+            div { class: "card",
+                h2 { class: "card-title", "订阅链接" }
+                p { class: "subtle", "将以下链接填入 Clash / V2Ray / Sing-box 客户端的订阅地址" }
+                {link_rows.into_iter()}
+            }
+            div { class: "card",
+                h2 { class: "card-title", "Token" }
+                p { class: "subtle", "管理 token 轮换后，当前浏览器会话自动切换到新 token；其他设备需重新登录。" }
+                div { class: "token-row",
+                    span { class: "token-label", "订阅 token" }
+                    code { class: "token-value", "{c.subscribe_token}" }
+                    button { class: "btn btn-secondary btn-sm", onclick: move |_| ask_rotate("subscribe"), "轮换" }
+                }
+                div { class: "token-row",
+                    span { class: "token-label", "管理 token" }
+                    code { class: "token-value",
+                        "{admin_token_show}"
+                    }
+                    button { class: "btn btn-ghost btn-sm",
+                        onclick: move |_| {
+                            let v = *show_admin_render.read();
+                            show_admin_render.set(!v);
+                        },
+                        if *show_admin_render.read() { "隐藏" } else { "显示" }
+                    }
+                    button { class: "btn btn-danger btn-sm", onclick: move |_| ask_rotate("admin"), "轮换" }
+                }
             }
         }
+        if !error.read().is_empty() {
+            p { class: "error-text", "{error}" }
+        }
+        ConfirmDialog { state: confirm, on_confirm: on_confirm_rotate }
     }
 }
