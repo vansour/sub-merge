@@ -1,8 +1,8 @@
-use proxy_core::model::{Crypto, Protocol, ProxyNode};
-use proxy_core::serializer::{serialize_nodes, OutputFormat};
 use proxy_core::formats::clash::serialize_clash;
 use proxy_core::formats::singbox::serialize_singbox;
 use proxy_core::formats::v2ray::serialize_v2ray;
+use proxy_core::model::{Crypto, Protocol, ProxyNode};
+use proxy_core::serializer::{OutputFormat, serialize_nodes};
 
 fn ss_node(name: &str, server: &str, port: u16) -> ProxyNode {
     ProxyNode {
@@ -34,7 +34,10 @@ fn trojan_node(name: &str, server: &str, port: u16) -> ProxyNode {
 
 #[test]
 fn clash_yaml_has_proxies_and_groups() {
-    let nodes = vec![ss_node("A", "1.2.3.4", 8388), trojan_node("B", "5.6.7.8", 443)];
+    let nodes = vec![
+        ss_node("A", "1.2.3.4", 8388),
+        trojan_node("B", "5.6.7.8", 443),
+    ];
     let out = serialize_clash(&nodes).unwrap();
     assert!(out.contains("proxies:"));
     assert!(out.contains("proxy-groups:"));
@@ -55,7 +58,10 @@ fn v2ray_subscription_uri_lines() {
 
 #[test]
 fn singbox_json_outbounds() {
-    let nodes = vec![ss_node("A", "1.2.3.4", 8388), trojan_node("B", "5.6.7.8", 443)];
+    let nodes = vec![
+        ss_node("A", "1.2.3.4", 8388),
+        trojan_node("B", "5.6.7.8", 443),
+    ];
     let out = serialize_singbox(&nodes).unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
     let outbounds = v["outbounds"].as_array().unwrap();
@@ -84,7 +90,16 @@ fn empty_nodes_ok() {
 #[test]
 fn clash_yaml_quotes_hostile_names() {
     use proxy_core::model::{Crypto, Protocol, ProxyNode};
-    for name in ["!secret", "*alias", "a|b", "col:on", "a\"b", "{x}", "p@ss", "日本 东京"] {
+    for name in [
+        "!secret",
+        "*alias",
+        "a|b",
+        "col:on",
+        "a\"b",
+        "{x}",
+        "p@ss",
+        "日本 东京",
+    ] {
         let node = ProxyNode {
             name: name.into(),
             kind: Protocol::Ss,

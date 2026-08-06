@@ -29,7 +29,10 @@ async fn preview_handler(
             })
         })
         .collect();
-    let error_list: Vec<String> = errors.iter().map(|e| format!("{}: {}", e.source_name, e.reason)).collect();
+    let error_list: Vec<String> = errors
+        .iter()
+        .map(|e| format!("{}: {}", e.source_name, e.reason))
+        .collect();
     Ok(Json(json!({
         "nodes": node_list,
         "errors": error_list,

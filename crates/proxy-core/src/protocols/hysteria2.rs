@@ -23,7 +23,11 @@ pub fn parse_hysteria2(uri: &str) -> Result<ProxyNode, ParseError> {
         None => (host_query, None),
     };
     let (server, port) = parse_host_port(hostpart)?;
-    let password = if userinfo.is_empty() { None } else { Some(percent_decode(userinfo)?) };
+    let password = if userinfo.is_empty() {
+        None
+    } else {
+        Some(percent_decode(userinfo)?)
+    };
 
     let mut sni = None;
     let mut alpn = Vec::new();
@@ -31,7 +35,9 @@ pub fn parse_hysteria2(uri: &str) -> Result<ProxyNode, ParseError> {
 
     if let Some(q) = query {
         for kv in q.split('&') {
-            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Some((k, v)) = kv.split_once('=') else {
+                continue;
+            };
             let v = percent_decode(v).unwrap_or_default();
             match k {
                 "sni" => sni = Some(v),

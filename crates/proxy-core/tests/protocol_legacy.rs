@@ -56,7 +56,10 @@ fn http_roundtrip_with_auth() {
 #[test]
 fn http_example_host_parses() {
     assert!(parse_line("http://example.com:8080#JP").is_ok());
-    assert_eq!(parse_line("http://example.com:8080#JP").unwrap().kind, Protocol::Http);
+    assert_eq!(
+        parse_line("http://example.com:8080#JP").unwrap().kind,
+        Protocol::Http
+    );
 }
 
 #[test]

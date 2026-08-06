@@ -2,8 +2,8 @@
 use crate::auth::require_admin;
 use crate::error::ApiError;
 use crate::state::AppState;
-use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
+use axum::extract::rejection::JsonRejection;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -29,8 +29,12 @@ async fn get_config(
     headers: axum::http::HeaderMap,
 ) -> Result<Json<ConfigDto>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
-    let sub = crate::db::get_setting(&state.pool, "subscribe_token").await?.unwrap_or_default();
-    let admin = crate::db::get_setting(&state.pool, "admin_token").await?.unwrap_or_default();
+    let sub = crate::db::get_setting(&state.pool, "subscribe_token")
+        .await?
+        .unwrap_or_default();
+    let admin = crate::db::get_setting(&state.pool, "admin_token")
+        .await?
+        .unwrap_or_default();
     Ok(Json(ConfigDto {
         subscribe_token: sub,
         admin_token: admin,
@@ -56,11 +60,19 @@ async fn rotate_config(
             state.rotate_admin(t.clone()).await;
             // 注意：轮换 admin token 后，旧 token 立即失效。本请求用旧 token 调用已通过校验。
         }
-        Some(_) => return Err(ApiError::bad_request("rotate must be 'subscribe' or 'admin'")),
+        Some(_) => {
+            return Err(ApiError::bad_request(
+                "rotate must be 'subscribe' or 'admin'",
+            ));
+        }
         None => {}
     }
-    let sub = crate::db::get_setting(&state.pool, "subscribe_token").await?.unwrap_or_default();
-    let admin = crate::db::get_setting(&state.pool, "admin_token").await?.unwrap_or_default();
+    let sub = crate::db::get_setting(&state.pool, "subscribe_token")
+        .await?
+        .unwrap_or_default();
+    let admin = crate::db::get_setting(&state.pool, "admin_token")
+        .await?
+        .unwrap_or_default();
     Ok(Json(ConfigDto {
         subscribe_token: sub,
         admin_token: admin,

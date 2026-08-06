@@ -9,7 +9,9 @@ pub fn is_tuic(uri: &str) -> bool {
 }
 
 pub fn parse_tuic(uri: &str) -> Result<ProxyNode, ParseError> {
-    let rest = uri.strip_prefix("tuic://").ok_or(ParseError::UnsupportedProtocol)?;
+    let rest = uri
+        .strip_prefix("tuic://")
+        .ok_or(ParseError::UnsupportedProtocol)?;
     let (auth_query, fragment) = match rest.find('#') {
         Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         None => (rest, None),
@@ -22,7 +24,9 @@ pub fn parse_tuic(uri: &str) -> Result<ProxyNode, ParseError> {
     let (server, port) = parse_host_port(hostpart)?;
 
     // userinfo = uuid:password
-    let (uuid, password) = userinfo.split_once(':').ok_or(ParseError::MissingField("uuid"))?;
+    let (uuid, password) = userinfo
+        .split_once(':')
+        .ok_or(ParseError::MissingField("uuid"))?;
     let password = percent_decode(password)?;
 
     let mut sni = None;
@@ -31,7 +35,9 @@ pub fn parse_tuic(uri: &str) -> Result<ProxyNode, ParseError> {
 
     if let Some(q) = query {
         for kv in q.split('&') {
-            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Some((k, v)) = kv.split_once('=') else {
+                continue;
+            };
             let v = percent_decode(v).unwrap_or_default();
             match k {
                 "sni" => sni = Some(v),

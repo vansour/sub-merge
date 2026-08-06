@@ -21,7 +21,11 @@ fn parse_trojan_tcp() {
 #[test]
 fn parse_trojan_ws() {
     let n = parse_trojan(TROJAN_WS).unwrap();
-    let ws = n.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
+    let ws = n
+        .transport
+        .as_ref()
+        .and_then(|t| t.websocket.as_ref())
+        .unwrap();
     assert_eq!(ws.path, "/tr");
     assert_eq!(ws.host.as_deref(), Some("example.com"));
 }
@@ -39,13 +43,22 @@ fn trojan_roundtrip() {
 
 #[test]
 fn trojan_httpupgrade_roundtrip() {
-    let uri = "trojan://pass@1.2.3.4:443?security=tls&type=httpupgrade&path=%2Fup&host=example.com#KR-03";
+    let uri =
+        "trojan://pass@1.2.3.4:443?security=tls&type=httpupgrade&path=%2Fup&host=example.com#KR-03";
     let n = parse_trojan(uri).unwrap();
-    assert!(n.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some());
+    assert!(
+        n.transport
+            .as_ref()
+            .and_then(|t| t.http_upgrade.as_ref())
+            .is_some()
+    );
     let out = serialize_trojan(&n).unwrap();
     let n2 = parse_trojan(&out).unwrap();
     assert!(
-        n2.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some(),
+        n2.transport
+            .as_ref()
+            .and_then(|t| t.http_upgrade.as_ref())
+            .is_some(),
         "httpupgrade transport lost in roundtrip: {out}"
     );
 }
@@ -59,7 +72,9 @@ fn trojan_invalid() {
 fn trojan_defaults_to_tls_without_security_param() {
     // 标准分享格式无 security 参数：trojan 协议强制 TLS 承载
     let n = parse_trojan("trojan://pass@1.2.3.4:443#T").unwrap();
-    let tls = n.tls.expect("trojan without security param must default to TLS");
+    let tls = n
+        .tls
+        .expect("trojan without security param must default to TLS");
     assert!(tls.enabled);
     // 显式 security=none 仍然关闭 TLS（保持序列化修复的测试语义）
     let n2 = parse_trojan("trojan://pass@1.2.3.4:443?security=none#T").unwrap();
@@ -74,12 +89,24 @@ fn trojan_serialize_transport_without_tls_emits_valid_query() {
     )
     .unwrap();
     assert!(n.tls.is_none());
-    assert!(n.transport.as_ref().and_then(|t| t.websocket.as_ref()).is_some());
+    assert!(
+        n.transport
+            .as_ref()
+            .and_then(|t| t.websocket.as_ref())
+            .is_some()
+    );
     let out = serialize_trojan(&n).unwrap();
     assert!(out.contains("?type=ws"), "query must start with '?': {out}");
-    assert!(out.contains("&host=cdn.example.com"), "params joined with &: {out}");
+    assert!(
+        out.contains("&host=cdn.example.com"),
+        "params joined with &: {out}"
+    );
     let n2 = parse_trojan(&out).unwrap();
     assert_eq!(n2.port, 443);
-    let ws = n2.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
+    let ws = n2
+        .transport
+        .as_ref()
+        .and_then(|t| t.websocket.as_ref())
+        .unwrap();
     assert_eq!(ws.path, "/ws");
 }

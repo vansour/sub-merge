@@ -8,7 +8,10 @@ const VLESS_TCP: &str = "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:44
 fn parse_vless_ws_tls() {
     let n = parse_vless(VLESS_WS).unwrap();
     assert_eq!(n.kind, Protocol::Vless);
-    assert_eq!(n.uuid.as_deref(), Some("11111111-2222-3333-4444-555555555555"));
+    assert_eq!(
+        n.uuid.as_deref(),
+        Some("11111111-2222-3333-4444-555555555555")
+    );
     assert_eq!(n.server, "1.2.3.4");
     assert_eq!(n.port, 443);
     assert_eq!(n.name, "JP-01");
@@ -16,7 +19,11 @@ fn parse_vless_ws_tls() {
     assert!(tls.enabled);
     assert_eq!(tls.sni.as_deref(), Some("cdn.example.com"));
     assert_eq!(tls.fingerprint.as_deref(), Some("chrome"));
-    let ws = n.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
+    let ws = n
+        .transport
+        .as_ref()
+        .and_then(|t| t.websocket.as_ref())
+        .unwrap();
     assert_eq!(ws.path, "/ws");
 }
 
@@ -44,11 +51,19 @@ fn vless_roundtrip() {
 fn vless_httpupgrade_roundtrip() {
     let uri = "vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443?encryption=none&security=tls&type=httpupgrade&path=%2Fup&host=cdn.example.com#JP-02";
     let n = parse_vless(uri).unwrap();
-    assert!(n.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some());
+    assert!(
+        n.transport
+            .as_ref()
+            .and_then(|t| t.http_upgrade.as_ref())
+            .is_some()
+    );
     let out = serialize_vless(&n).unwrap();
     let n2 = parse_vless(&out).unwrap();
     assert!(
-        n2.transport.as_ref().and_then(|t| t.http_upgrade.as_ref()).is_some(),
+        n2.transport
+            .as_ref()
+            .and_then(|t| t.http_upgrade.as_ref())
+            .is_some(),
         "httpupgrade transport lost in roundtrip: {out}"
     );
 }

@@ -10,4 +10,7 @@ pub mod serializer;
 pub mod uri;
 
 pub use error::{ParseError, SerializeError};
-pub use model::{Crypto, GrpcConfig, HttpUpgradeConfig, Protocol, ProxyNode, TlsSettings, Transport, WebsocketConfig};
+pub use model::{
+    Crypto, GrpcConfig, HttpUpgradeConfig, Protocol, ProxyNode, TlsSettings, Transport,
+    WebsocketConfig,
+};

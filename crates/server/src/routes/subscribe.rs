@@ -5,7 +5,7 @@ use crate::state::AppState;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::response::Response;
-use proxy_core::serializer::{serialize_nodes, OutputFormat};
+use proxy_core::serializer::{OutputFormat, serialize_nodes};
 use sqlx::Row;
 use std::str::FromStr;
 
@@ -38,7 +38,9 @@ pub async fn subscribe_handler(
     }
 
     let format = match &q.format {
-        Some(f) => OutputFormat::from_str(f).map_err(|_| ApiError::bad_request("unsupported format"))?,
+        Some(f) => {
+            OutputFormat::from_str(f).map_err(|_| ApiError::bad_request("unsupported format"))?
+        }
         None => OutputFormat::Clash,
     };
 
@@ -51,7 +53,9 @@ pub async fn subscribe_handler(
             .map(|e| format!("{}: {}", e.source_name, e.reason))
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(ApiError::bad_gateway(format!("all sources failed: {details}")));
+        return Err(ApiError::bad_gateway(format!(
+            "all sources failed: {details}"
+        )));
     }
 
     let body = serialize_nodes(&nodes, format).map_err(|e| ApiError::internal(e.to_string()))?;
@@ -75,5 +79,8 @@ fn constant_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }

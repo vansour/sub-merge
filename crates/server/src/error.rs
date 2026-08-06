@@ -1,8 +1,8 @@
 // crates/server/src/error.rs
+use axum::Json;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde_json::json;
 
 #[derive(Debug)]
@@ -14,19 +14,39 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn unauthorized(msg: impl Into<String>) -> Self {
-        Self { status: StatusCode::UNAUTHORIZED, code: "unauthorized", message: msg.into() }
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthorized",
+            message: msg.into(),
+        }
     }
     pub fn bad_request(msg: impl Into<String>) -> Self {
-        Self { status: StatusCode::BAD_REQUEST, code: "bad_request", message: msg.into() }
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "bad_request",
+            message: msg.into(),
+        }
     }
     pub fn not_found(msg: impl Into<String>) -> Self {
-        Self { status: StatusCode::NOT_FOUND, code: "not_found", message: msg.into() }
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+            message: msg.into(),
+        }
     }
     pub fn internal(msg: impl Into<String>) -> Self {
-        Self { status: StatusCode::INTERNAL_SERVER_ERROR, code: "internal_error", message: msg.into() }
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "internal_error",
+            message: msg.into(),
+        }
     }
     pub fn bad_gateway(msg: impl Into<String>) -> Self {
-        Self { status: StatusCode::BAD_GATEWAY, code: "bad_gateway", message: msg.into() }
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            code: "bad_gateway",
+            message: msg.into(),
+        }
     }
 }
 
@@ -56,18 +76,30 @@ impl From<sqlx::Error> for ApiError {
 
 impl From<JsonRejection> for ApiError {
     fn from(rej: JsonRejection) -> Self {
-        Self { status: rej.status(), code: "invalid_json", message: rej.body_text() }
+        Self {
+            status: rej.status(),
+            code: "invalid_json",
+            message: rej.body_text(),
+        }
     }
 }
 
 impl From<PathRejection> for ApiError {
     fn from(rej: PathRejection) -> Self {
-        Self { status: rej.status(), code: "invalid_path", message: rej.body_text() }
+        Self {
+            status: rej.status(),
+            code: "invalid_path",
+            message: rej.body_text(),
+        }
     }
 }
 
 impl From<QueryRejection> for ApiError {
     fn from(rej: QueryRejection) -> Self {
-        Self { status: rej.status(), code: "invalid_query", message: rej.body_text() }
+        Self {
+            status: rej.status(),
+            code: "invalid_query",
+            message: rej.body_text(),
+        }
     }
 }

@@ -13,11 +13,23 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Self {
-        let port = std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8080);
+        let port = std::env::var("PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8080);
         let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "./submerge.db".into());
-        let concurrency = std::env::var("CONCURRENCY").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
-        let timeout_secs = std::env::var("TIMEOUT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(15);
-        let max_nodes = std::env::var("MAX_NODES").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
+        let concurrency = std::env::var("CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8);
+        let timeout_secs = std::env::var("TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(15);
+        let max_nodes = std::env::var("MAX_NODES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2000);
         let web_dist = std::env::var("WEB_DIST").unwrap_or_else(|_| "./web/dist".into());
         Self {
             port,

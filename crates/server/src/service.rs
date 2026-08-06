@@ -17,13 +17,20 @@ pub struct SourceError {
 /// 并发拉取全部 enabled 源（受 cfg.concurrency 上限约束），解析合并。
 /// 返回 (节点, 错误源列表)。
 pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceError>) {
-    let sources: Vec<(i64, String, String)> = sqlx::query("SELECT id, name, url FROM sources WHERE enabled = 1")
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|r| (r.get::<i64, _>(0), r.get::<String, _>(1), r.get::<String, _>(2)))
-        .collect();
+    let sources: Vec<(i64, String, String)> =
+        sqlx::query("SELECT id, name, url FROM sources WHERE enabled = 1")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| {
+                (
+                    r.get::<i64, _>(0),
+                    r.get::<String, _>(1),
+                    r.get::<String, _>(2),
+                )
+            })
+            .collect();
 
     let max_nodes = state.cfg.max_nodes;
     let client = Arc::new(state.http.clone());
@@ -44,7 +51,10 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
                 Ok(text) => {
                     let (nodes, skipped) = parse_subscription_text(&text, max_nodes);
                     if nodes.is_empty() {
-                        (name, Err(format!("no nodes parsed ({} line(s) skipped)", skipped)))
+                        (
+                            name,
+                            Err(format!("no nodes parsed ({} line(s) skipped)", skipped)),
+                        )
                     } else {
                         (name, Ok(nodes))
                     }
@@ -60,7 +70,10 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
         let Ok((name, result)) = res else { continue };
         match result {
             Ok(mut nodes) => all_nodes.append(&mut nodes),
-            Err(reason) => errors.push(SourceError { source_name: name, reason }),
+            Err(reason) => errors.push(SourceError {
+                source_name: name,
+                reason,
+            }),
         }
     }
     // 上限截断
@@ -68,7 +81,11 @@ pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceErr
     (all_nodes, errors)
 }
 
-pub async fn fetch_source(client: &reqwest::Client, url: &str, timeout: Duration) -> Result<String, String> {
+pub async fn fetch_source(
+    client: &reqwest::Client,
+    url: &str,
+    timeout: Duration,
+) -> Result<String, String> {
     let resp = client
         .get(url)
         .timeout(timeout)

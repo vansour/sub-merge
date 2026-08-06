@@ -8,7 +8,9 @@ pub fn is_socks5(uri: &str) -> bool {
 }
 
 pub fn parse_socks5(uri: &str) -> Result<ProxyNode, ParseError> {
-    let rest = uri.strip_prefix("socks5://").ok_or(ParseError::UnsupportedProtocol)?;
+    let rest = uri
+        .strip_prefix("socks5://")
+        .ok_or(ParseError::UnsupportedProtocol)?;
     let (auth, fragment) = match rest.find('#') {
         Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         None => (rest, None),
@@ -32,7 +34,9 @@ pub fn parse_socks5(uri: &str) -> Result<ProxyNode, ParseError> {
 }
 
 fn split_userpass(s: &str) -> Result<(String, String), ParseError> {
-    let (u, p) = s.split_once(':').ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
+    let (u, p) = s
+        .split_once(':')
+        .ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
     Ok((percent_decode(u)?, percent_decode(p)?))
 }
 

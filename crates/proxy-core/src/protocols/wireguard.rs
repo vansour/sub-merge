@@ -9,7 +9,9 @@ pub fn is_wireguard(uri: &str) -> bool {
 }
 
 pub fn parse_wireguard(uri: &str) -> Result<ProxyNode, ParseError> {
-    let rest = uri.strip_prefix("wireguard://").ok_or(ParseError::UnsupportedProtocol)?;
+    let rest = uri
+        .strip_prefix("wireguard://")
+        .ok_or(ParseError::UnsupportedProtocol)?;
     let (host_query, fragment) = match rest.find('#') {
         Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         None => (rest, None),
@@ -33,7 +35,9 @@ pub fn parse_wireguard(uri: &str) -> Result<ProxyNode, ParseError> {
 
     if let Some(q) = query {
         for kv in q.split('&') {
-            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Some((k, v)) = kv.split_once('=') else {
+                continue;
+            };
             let v = percent_decode(v).unwrap_or_default();
             match k {
                 "publicKey" => public_key = Some(v),
@@ -62,8 +66,14 @@ pub fn serialize_wireguard(node: &ProxyNode) -> Result<String, SerializeError> {
     if node.kind != Protocol::Wireguard {
         return Err(SerializeError::UnsupportedProtocol(node.kind.as_str()));
     }
-    let pubk = node.password.as_ref().ok_or(SerializeError::MissingField("publicKey"))?;
-    let privk = node.uuid.as_ref().ok_or(SerializeError::MissingField("privateKey"))?;
+    let pubk = node
+        .password
+        .as_ref()
+        .ok_or(SerializeError::MissingField("publicKey"))?;
+    let privk = node
+        .uuid
+        .as_ref()
+        .ok_or(SerializeError::MissingField("privateKey"))?;
     let mut out = format!("wireguard://{}@{}:{}", encode(pubk), node.server, node.port);
     out.push_str(&format!("?publicKey={}", encode(pubk)));
     out.push_str(&format!("&privateKey={}", encode(privk)));

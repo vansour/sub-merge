@@ -8,7 +8,9 @@ pub fn is_http(uri: &str) -> bool {
 }
 
 pub fn parse_http(uri: &str) -> Result<ProxyNode, ParseError> {
-    let rest = uri.strip_prefix("http://").ok_or(ParseError::UnsupportedProtocol)?;
+    let rest = uri
+        .strip_prefix("http://")
+        .ok_or(ParseError::UnsupportedProtocol)?;
     let (auth, fragment) = match rest.find('#') {
         Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         None => (rest, None),
@@ -18,7 +20,9 @@ pub fn parse_http(uri: &str) -> Result<ProxyNode, ParseError> {
     let password = if userinfo.is_empty() {
         None
     } else {
-        let (_, p) = userinfo.split_once(':').ok_or_else(|| ParseError::InvalidUri(userinfo.to_string()))?;
+        let (_, p) = userinfo
+            .split_once(':')
+            .ok_or_else(|| ParseError::InvalidUri(userinfo.to_string()))?;
         Some(percent_decode(p)?)
     };
     Ok(ProxyNode {

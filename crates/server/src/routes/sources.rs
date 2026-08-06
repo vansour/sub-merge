@@ -64,14 +64,13 @@ async fn create_source(
         return Err(ApiError::bad_request("url and name required"));
     }
     let created_at = chrono::Utc::now().to_rfc3339(); // 或手写时间
-    let res = sqlx::query(
-        "INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)",
-    )
-    .bind(&body.url)
-    .bind(&body.name)
-    .bind(&created_at)
-    .execute(&state.pool)
-    .await?;
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+            .bind(&body.url)
+            .bind(&body.name)
+            .bind(&created_at)
+            .execute(&state.pool)
+            .await?;
     let id = res.last_insert_rowid();
     let dto = SourceDto {
         id,
@@ -113,7 +112,13 @@ async fn update_source(
         .execute(&state.pool)
         .await?;
 
-    let dto = SourceDto { id, url, name, enabled, created_at: existing.created_at };
+    let dto = SourceDto {
+        id,
+        url,
+        name,
+        enabled,
+        created_at: existing.created_at,
+    };
     Ok(Json(dto))
 }
 
@@ -150,10 +155,16 @@ async fn refresh_source(
     .await?
     .ok_or_else(|| ApiError::not_found("source not found"))?;
 
-    let result = crate::service::fetch_source(&state.http, &source.url, std::time::Duration::from_secs(state.cfg.timeout_secs)).await;
+    let result = crate::service::fetch_source(
+        &state.http,
+        &source.url,
+        std::time::Duration::from_secs(state.cfg.timeout_secs),
+    )
+    .await;
     match result {
         Ok(text) => {
-            let (nodes, _skipped) = proxy_core::parser::parse_subscription_text(&text, state.cfg.max_nodes);
+            let (nodes, _skipped) =
+                proxy_core::parser::parse_subscription_text(&text, state.cfg.max_nodes);
             // 与 fetch_and_merge 一致：抓取成功但解析出 0 个节点视为源错误。
             if nodes.is_empty() {
                 return Ok(Json(serde_json::json!({

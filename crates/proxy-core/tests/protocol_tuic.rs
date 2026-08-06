@@ -7,7 +7,10 @@ const TUIC: &str = "tuic://11111111-2222-3333-4444-555555555555:pass%40word@1.2.
 fn parse_tuic_basic() {
     let n = parse_tuic(TUIC).unwrap();
     assert_eq!(n.kind, Protocol::Tuic);
-    assert_eq!(n.uuid.as_deref(), Some("11111111-2222-3333-4444-555555555555"));
+    assert_eq!(
+        n.uuid.as_deref(),
+        Some("11111111-2222-3333-4444-555555555555")
+    );
     assert_eq!(n.password.as_deref(), Some("pass@word"));
     assert_eq!(n.server, "1.2.3.4");
     assert_eq!(n.port, 443);

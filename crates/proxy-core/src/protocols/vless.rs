@@ -11,7 +11,9 @@ pub fn is_vless(uri: &str) -> bool {
 }
 
 pub fn parse_vless(uri: &str) -> Result<ProxyNode, ParseError> {
-    let rest = uri.strip_prefix("vless://").ok_or(ParseError::UnsupportedProtocol)?;
+    let rest = uri
+        .strip_prefix("vless://")
+        .ok_or(ParseError::UnsupportedProtocol)?;
     let (auth_and_query, fragment) = match rest.find('#') {
         Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         None => (rest, None),
@@ -38,7 +40,9 @@ pub fn parse_vless(uri: &str) -> Result<ProxyNode, ParseError> {
 
     if let Some(q) = query {
         for kv in q.split('&') {
-            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Some((k, v)) = kv.split_once('=') else {
+                continue;
+            };
             let v = percent_decode(v).unwrap_or_default();
             match k {
                 "security" => security = v,
@@ -68,11 +72,17 @@ pub fn parse_vless(uri: &str) -> Result<ProxyNode, ParseError> {
 
     let transport = match net.as_str() {
         "ws" | "websocket" => Some(Transport {
-            websocket: Some(WebsocketConfig { path, host, headers: Default::default() }),
+            websocket: Some(WebsocketConfig {
+                path,
+                host,
+                headers: Default::default(),
+            }),
             ..Default::default()
         }),
         "grpc" => Some(Transport {
-            grpc: Some(GrpcConfig { service_name: path.trim_start_matches('/').to_string() }),
+            grpc: Some(GrpcConfig {
+                service_name: path.trim_start_matches('/').to_string(),
+            }),
             ..Default::default()
         }),
         "httpupgrade" => Some(Transport {
@@ -98,8 +108,14 @@ pub fn serialize_vless(node: &ProxyNode) -> Result<String, SerializeError> {
     if node.kind != Protocol::Vless {
         return Err(SerializeError::UnsupportedProtocol(node.kind.as_str()));
     }
-    let uuid = node.uuid.as_ref().ok_or(SerializeError::MissingField("uuid"))?;
-    let mut out = format!("vless://{}@{}:{}?encryption=none", uuid, node.server, node.port);
+    let uuid = node
+        .uuid
+        .as_ref()
+        .ok_or(SerializeError::MissingField("uuid"))?;
+    let mut out = format!(
+        "vless://{}@{}:{}?encryption=none",
+        uuid, node.server, node.port
+    );
 
     let (net, host, path) = match &node.transport {
         Some(t) if t.websocket.is_some() => {
@@ -112,7 +128,11 @@ pub fn serialize_vless(node: &ProxyNode) -> Result<String, SerializeError> {
         }
         Some(t) if t.http_upgrade.is_some() => {
             let h = t.http_upgrade.as_ref().unwrap();
-            ("httpupgrade", h.host.clone().unwrap_or_default(), h.path.clone())
+            (
+                "httpupgrade",
+                h.host.clone().unwrap_or_default(),
+                h.path.clone(),
+            )
         }
         _ => ("tcp", String::new(), String::new()),
     };

@@ -35,6 +35,8 @@ impl Protocol {
         }
     }
 
+    // 返回 Option 的宽松解析（含别名容错），不符合 std::str::FromStr 的 Result 形态
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "ss" => Some(Self::Ss),
@@ -74,6 +76,8 @@ pub enum Crypto {
 }
 
 impl Crypto {
+    // 永不失败的兜底解析（未知值走 Raw），不符合 std::str::FromStr 的 Result 形态
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
             "aes-256-gcm" => Self::Aes256Gcm,

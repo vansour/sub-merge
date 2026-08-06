@@ -23,7 +23,10 @@ impl FromStr for OutputFormat {
     }
 }
 
-pub fn serialize_nodes(nodes: &[ProxyNode], format: OutputFormat) -> Result<String, SerializeError> {
+pub fn serialize_nodes(
+    nodes: &[ProxyNode],
+    format: OutputFormat,
+) -> Result<String, SerializeError> {
     match format {
         OutputFormat::Clash => clash::serialize_clash(nodes),
         OutputFormat::V2ray => v2ray::serialize_v2ray(nodes),

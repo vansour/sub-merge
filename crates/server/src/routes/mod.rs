@@ -7,10 +7,14 @@ pub mod sources;
 pub mod subscribe;
 
 use crate::state::AppState;
-use axum::routing::get;
 use axum::Router;
+use axum::routing::get;
 
-pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::AppConfig, admin_token: String) -> Router {
+pub async fn build_router(
+    pool: sqlx::sqlite::SqlitePool,
+    cfg: crate::config::AppConfig,
+    admin_token: String,
+) -> Router {
     let state = AppState::new(pool, cfg, admin_token);
     let api = Router::new()
         .route("/api/subscribe", get(subscribe::subscribe_handler))
@@ -18,10 +22,7 @@ pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::Ap
         .merge(preview::router())
         .merge(config::router());
 
-    let app = api
-        .route("/", get(|| async { "sub-merge is running" }))
+    api.route("/", get(|| async { "sub-merge is running" }))
         .fallback(crate::r#static::fallback)
-        .with_state(state);
-
-    app
+        .with_state(state)
 }

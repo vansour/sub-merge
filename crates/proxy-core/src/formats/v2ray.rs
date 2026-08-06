@@ -26,6 +26,9 @@ pub fn serialize_v2ray(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
     if joined.is_empty() {
         return Ok(String::new());
     }
-    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, joined.as_bytes());
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        joined.as_bytes(),
+    );
     Ok(b64)
 }

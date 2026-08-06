@@ -3,7 +3,7 @@
 // 2. refresh_source reports ok:false when the source body parses to zero nodes.
 
 use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use server::config::AppConfig;
 use server::db::init_db;
@@ -74,9 +74,7 @@ async fn refresh_source_zero_nodes_reports_ok_false() {
     let mock = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/empty"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string("this is not a subscription body"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string("this is not a subscription body"))
         .mount(&mock)
         .await;
 

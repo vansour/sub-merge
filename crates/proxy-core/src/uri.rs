@@ -15,7 +15,7 @@ pub fn decode_base64_url(s: &str) -> Result<Vec<u8>, ParseError> {
     t = t.trim_end_matches('=').to_string();
     match t.len() % 4 {
         2 => t.push_str("=="),
-        3 => t.push_str("="),
+        3 => t.push('='),
         1 => return Err(ParseError::InvalidBase64(s.to_string())),
         _ => {}
     }
@@ -47,7 +47,9 @@ pub fn split_authority(auth: &str) -> (&str, &str) {
 pub fn parse_host_port(s: &str) -> Result<(String, u16), ParseError> {
     // 处理 IPv6: [addr]:port
     let (host, port_str) = if let Some(rest) = s.strip_prefix('[') {
-        let close = rest.find(']').ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
+        let close = rest
+            .find(']')
+            .ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
         let host = rest[..close].to_string();
         let after = &rest[close + 1..];
         let port_str = after
@@ -55,12 +57,12 @@ pub fn parse_host_port(s: &str) -> Result<(String, u16), ParseError> {
             .ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
         (host, port_str)
     } else {
-        let idx = s.rfind(':').ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
+        let idx = s
+            .rfind(':')
+            .ok_or_else(|| ParseError::InvalidUri(s.to_string()))?;
         (s[..idx].to_string(), &s[idx + 1..])
     };
-    let port: u16 = port_str
-        .parse()
-        .map_err(|_| ParseError::InvalidPort)?;
+    let port: u16 = port_str.parse().map_err(|_| ParseError::InvalidPort)?;
     Ok((host, port))
 }
 
@@ -78,7 +80,10 @@ mod tests {
     #[test]
     fn base64_standard_works() {
         let b64 = "Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpwYXNz=";
-        assert_eq!(decode_base64_url_string(b64).unwrap(), "chacha20-ietf-poly1305:pass");
+        assert_eq!(
+            decode_base64_url_string(b64).unwrap(),
+            "chacha20-ietf-poly1305:pass"
+        );
     }
 
     #[test]

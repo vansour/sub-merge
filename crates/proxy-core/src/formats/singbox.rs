@@ -13,7 +13,11 @@ pub fn serialize_singbox(nodes: &[ProxyNode]) -> Result<String, SerializeError> 
 }
 
 fn node_to_singbox(n: &ProxyNode) -> Result<serde_json::Value, SerializeError> {
-    let tag = if n.name.is_empty() { &n.server } else { &n.name };
+    let tag = if n.name.is_empty() {
+        &n.server
+    } else {
+        &n.name
+    };
     let base = json!({
         "tag": tag,
         "server": n.server,
@@ -22,15 +26,27 @@ fn node_to_singbox(n: &ProxyNode) -> Result<serde_json::Value, SerializeError> {
     let mut o = base;
     match &n.kind {
         Protocol::Ss => {
-            let c = n.crypto.as_ref().ok_or(SerializeError::MissingField("crypto"))?;
-            let p = n.password.as_ref().ok_or(SerializeError::MissingField("password"))?;
+            let c = n
+                .crypto
+                .as_ref()
+                .ok_or(SerializeError::MissingField("crypto"))?;
+            let p = n
+                .password
+                .as_ref()
+                .ok_or(SerializeError::MissingField("password"))?;
             o["type"] = json!("shadowsocks");
             o["method"] = json!(c.as_str());
             o["password"] = json!(p);
         }
         Protocol::Ssr => {
-            let c = n.crypto.as_ref().ok_or(SerializeError::MissingField("crypto"))?;
-            let p = n.password.as_ref().ok_or(SerializeError::MissingField("password"))?;
+            let c = n
+                .crypto
+                .as_ref()
+                .ok_or(SerializeError::MissingField("crypto"))?;
+            let p = n
+                .password
+                .as_ref()
+                .ok_or(SerializeError::MissingField("password"))?;
             o["type"] = json!("shadowsocksr");
             o["method"] = json!(c.as_str());
             o["password"] = json!(p);
@@ -52,18 +68,27 @@ fn node_to_singbox(n: &ProxyNode) -> Result<serde_json::Value, SerializeError> {
             }
         }
         Protocol::Vmess => {
-            let u = n.uuid.as_ref().ok_or(SerializeError::MissingField("uuid"))?;
+            let u = n
+                .uuid
+                .as_ref()
+                .ok_or(SerializeError::MissingField("uuid"))?;
             o["type"] = json!("vmess");
             o["uuid"] = json!(u);
             o["alter_id"] = json!(n.alter_id.unwrap_or(0));
         }
         Protocol::Vless => {
-            let u = n.uuid.as_ref().ok_or(SerializeError::MissingField("uuid"))?;
+            let u = n
+                .uuid
+                .as_ref()
+                .ok_or(SerializeError::MissingField("uuid"))?;
             o["type"] = json!("vless");
             o["uuid"] = json!(u);
         }
         Protocol::Trojan => {
-            let p = n.password.as_ref().ok_or(SerializeError::MissingField("password"))?;
+            let p = n
+                .password
+                .as_ref()
+                .ok_or(SerializeError::MissingField("password"))?;
             o["type"] = json!("trojan");
             o["password"] = json!(p);
         }
@@ -91,8 +116,14 @@ fn node_to_singbox(n: &ProxyNode) -> Result<serde_json::Value, SerializeError> {
             o["congestion_control"] = json!("bbr");
         }
         Protocol::Wireguard => {
-            let pubk = n.password.as_ref().ok_or(SerializeError::MissingField("publicKey"))?;
-            let privk = n.uuid.as_ref().ok_or(SerializeError::MissingField("privateKey"))?;
+            let pubk = n
+                .password
+                .as_ref()
+                .ok_or(SerializeError::MissingField("publicKey"))?;
+            let privk = n
+                .uuid
+                .as_ref()
+                .ok_or(SerializeError::MissingField("privateKey"))?;
             o["type"] = json!("wireguard");
             o["public_key"] = json!(pubk);
             o["private_key"] = json!(privk);

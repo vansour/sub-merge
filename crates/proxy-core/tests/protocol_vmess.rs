@@ -16,7 +16,11 @@ fn parse_vmess_ws_tls() {
     let tls = n.tls.as_ref().unwrap();
     assert!(tls.enabled);
     assert_eq!(tls.sni.as_deref(), Some("cdn.example.com"));
-    let ws = n.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
+    let ws = n
+        .transport
+        .as_ref()
+        .and_then(|t| t.websocket.as_ref())
+        .unwrap();
     assert_eq!(ws.path, "/ws");
 }
 
@@ -60,7 +64,11 @@ fn parse_vmess_allow_insecure_bool() {
     let tls = n.tls.as_ref().unwrap();
     assert!(tls.enabled);
     assert!(tls.insecure);
-    let ws = n.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap();
+    let ws = n
+        .transport
+        .as_ref()
+        .and_then(|t| t.websocket.as_ref())
+        .unwrap();
     assert_eq!(ws.path, "/ws");
 }
 
@@ -69,7 +77,14 @@ fn vmess_roundtrip_no_host() {
     let n = parse_vmess(VMESS_NO_HOST).unwrap();
     assert!(n.tls.as_ref().unwrap().enabled);
     assert!(n.tls.as_ref().unwrap().sni.is_none());
-    assert!(n.transport.as_ref().and_then(|t| t.websocket.as_ref()).unwrap().host.is_none());
+    assert!(
+        n.transport
+            .as_ref()
+            .and_then(|t| t.websocket.as_ref())
+            .unwrap()
+            .host
+            .is_none()
+    );
     let out = serialize_vmess(&n).unwrap();
     assert!(out.starts_with("vmess://"));
     let n2 = parse_vmess(&out).unwrap();

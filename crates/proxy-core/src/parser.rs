@@ -2,7 +2,7 @@
 use crate::error::ParseError;
 use crate::model::ProxyNode;
 use crate::protocols::{
-    http, hysteria, hysteria2, ss, ssr, socks5, trojan, tuic, vless, vmess, wireguard,
+    http, hysteria, hysteria2, socks5, ss, ssr, trojan, tuic, vless, vmess, wireguard,
 };
 use crate::uri::decode_base64_url_string;
 
@@ -93,7 +93,8 @@ pub fn parse_subscription_text(text: &str, max_nodes: usize) -> (Vec<ProxyNode>,
 
 /// 解析 Clash YAML 的 proxies 段。
 pub fn parse_clash_yaml(text: &str) -> Result<Vec<ProxyNode>, ParseError> {
-    let doc: serde_yaml::Value = serde_yaml::from_str(text).map_err(|e| ParseError::InvalidUri(e.to_string()))?;
+    let doc: serde_yaml::Value =
+        serde_yaml::from_str(text).map_err(|e| ParseError::InvalidUri(e.to_string()))?;
     let Some(proxies) = doc.get("proxies").and_then(|p| p.as_sequence()) else {
         return Ok(Vec::new());
     };
@@ -126,11 +127,18 @@ fn clash_proxy_to_node(p: &serde_yaml::Value) -> Option<ProxyNode> {
     if let Some(s) = p.get("uuid").and_then(|v| v.as_str()) {
         node.uuid = Some(s.to_string());
     }
-    if let Some(alter_id) = p.get("alterId").or_else(|| p.get("alter-id")).and_then(|v| v.as_u64()) {
+    if let Some(alter_id) = p
+        .get("alterId")
+        .or_else(|| p.get("alter-id"))
+        .and_then(|v| v.as_u64())
+    {
         node.alter_id = alter_id.try_into().ok();
     }
     // 加密
-    if let Some(c) = p.get("cipher").or_else(|| p.get("method")).and_then(|v| v.as_str())
+    if let Some(c) = p
+        .get("cipher")
+        .or_else(|| p.get("method"))
+        .and_then(|v| v.as_str())
         && c != "auto"
     {
         node.crypto = Some(crate::model::Crypto::from_str(c));
@@ -140,34 +148,77 @@ fn clash_proxy_to_node(p: &serde_yaml::Value) -> Option<ProxyNode> {
     let type_always_tls = ty == "trojan";
     let tls_on = type_always_tls
         || p.get("tls").and_then(|v| v.as_bool()).unwrap_or(false)
-        || p.get("security").and_then(|v| v.as_str()).map(|s| s != "none").unwrap_or(false);
+        || p.get("security")
+            .and_then(|v| v.as_str())
+            .map(|s| s != "none")
+            .unwrap_or(false);
     if tls_on {
         node.tls = Some(crate::model::TlsSettings {
             enabled: true,
-            sni: p.get("sni").and_then(|v| v.as_str()).map(|s| s.to_string())
-                .or_else(|| p.get("servername").and_then(|v| v.as_str()).map(|s| s.to_string())),
-            alpn: p.get("alpn").and_then(|v| v.as_sequence())
-                .map(|seq| seq.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+            sni: p
+                .get("sni")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    p.get("servername")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                }),
+            alpn: p
+                .get("alpn")
+                .and_then(|v| v.as_sequence())
+                .map(|seq| {
+                    seq.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
                 .unwrap_or_default(),
-            insecure: p.get("skip-cert-verify").and_then(|v| v.as_bool()).unwrap_or(false),
-            fingerprint: p.get("client-fingerprint").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            insecure: p
+                .get("skip-cert-verify")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            fingerprint: p
+                .get("client-fingerprint")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         });
     }
     // 传输
     let net = p.get("network").and_then(|v| v.as_str()).unwrap_or("tcp");
     match net {
         "ws" | "websocket" => {
-            let path = p.get("ws-opts").and_then(|o| o.get("path")).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let host = p.get("ws-opts").and_then(|o| o.get("headers")).and_then(|h| h.get("Host")).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let path = p
+                .get("ws-opts")
+                .and_then(|o| o.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let host = p
+                .get("ws-opts")
+                .and_then(|o| o.get("headers"))
+                .and_then(|h| h.get("Host"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             node.transport = Some(crate::model::Transport {
-                websocket: Some(crate::model::WebsocketConfig { path, host, headers: Default::default() }),
+                websocket: Some(crate::model::WebsocketConfig {
+                    path,
+                    host,
+                    headers: Default::default(),
+                }),
                 ..Default::default()
             });
         }
         "grpc" => {
-            let service = p.get("grpc-opts").and_then(|o| o.get("grpc-service-name")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let service = p
+                .get("grpc-opts")
+                .and_then(|o| o.get("grpc-service-name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             node.transport = Some(crate::model::Transport {
-                grpc: Some(crate::model::GrpcConfig { service_name: service }),
+                grpc: Some(crate::model::GrpcConfig {
+                    service_name: service,
+                }),
                 ..Default::default()
             });
         }

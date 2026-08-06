@@ -1,7 +1,7 @@
 // crates/server/src/db.rs
 use anyhow::Result;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
 
 pub async fn init_db(path: &Path) -> Result<SqlitePool> {

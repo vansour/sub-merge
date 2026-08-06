@@ -1,14 +1,14 @@
-use server::config::AppConfig;
-use server::db::init_db;
-use serde_json::json;
-use sqlx::sqlite::SqlitePool;
-use tower::ServiceExt;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use serde_json::json;
+use server::config::AppConfig;
+use server::db::init_db;
+use sqlx::sqlite::SqlitePool;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn test_config(tmp: &std::path::Path) -> AppConfig {
     AppConfig {
@@ -52,7 +52,12 @@ async fn unknown_route_returns_404() {
     let app = server::routes::build_router(pool, cfg, admin).await;
 
     let resp = app
-        .oneshot(Request::builder().uri("/api/nonexistent").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/api/nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -60,7 +65,10 @@ async fn unknown_route_returns_404() {
 
 #[tokio::test]
 async fn subscribe_requires_token() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-requires-token", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "submerge-test-{}-sub-requires-token",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let (_sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
@@ -68,17 +76,27 @@ async fn subscribe_requires_token() {
     let app = server::routes::build_router(pool, cfg, admin).await;
 
     // 无 token
-    let resp = app.clone()
-        .oneshot(Request::builder().uri("/api/subscribe").body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/subscribe")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn subscribe_with_valid_token_returns_subscription() {
     let mock = MockServer::start().await;
-    Mock::given(method("GET")).and(path("/sub"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"))
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"),
+        )
         .mount(&mock)
         .await;
 
@@ -90,18 +108,30 @@ async fn subscribe_with_valid_token_returns_subscription() {
     // 插入一个指向 mock server 的源
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-        .bind(&url).bind("mock-source").bind("now").execute(&pool).await.unwrap();
+        .bind(&url)
+        .bind("mock-source")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
-    let resp = app.clone()
-        .oneshot(Request::builder()
-            .uri(format!("/api/subscribe?token={}&format=clash", sub))
-            .body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/subscribe?token={}&format=clash", sub))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(body.contains("proxies:"));
     assert!(body.contains("name: A"));
@@ -116,11 +146,16 @@ async fn subscribe_wrong_format_returns_bad_request() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
-    let resp = app.clone()
-        .oneshot(Request::builder()
-            .uri(format!("/api/subscribe?token={}&format=bogus", sub))
-            .body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/subscribe?token={}&format=bogus", sub))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -142,7 +177,9 @@ async fn fetch_and_merge_respects_concurrency_cap() {
                 if served.load(Ordering::SeqCst) >= 6 {
                     break;
                 }
-                let Ok((mut sock, _)) = listener.accept().await else { break };
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
                 let active = active.clone();
                 let max_active = max_active.clone();
                 let served = served.clone();
@@ -166,7 +203,10 @@ async fn fetch_and_merge_respects_concurrency_cap() {
         });
     }
 
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-concurrency", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "submerge-test-{}-sub-concurrency",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
@@ -175,8 +215,12 @@ async fn fetch_and_merge_respects_concurrency_cap() {
     for i in 0..6 {
         let url = format!("http://{}/s{}", addr, i);
         sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-            .bind(&url).bind(format!("src-{i}")).bind("now")
-            .execute(&pool).await.unwrap();
+            .bind(&url)
+            .bind(format!("src-{i}"))
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     let cfg = AppConfig {
@@ -191,18 +235,32 @@ async fn fetch_and_merge_respects_concurrency_cap() {
 
     let (nodes, errors) = server::service::fetch_and_merge(&state).await;
 
-    assert!(errors.is_empty(), "expected no source errors, got {errors:?}");
+    assert!(
+        errors.is_empty(),
+        "expected no source errors, got {errors:?}"
+    );
     assert_eq!(nodes.len(), 6, "all 6 sources should be fetched and merged");
     assert!(nodes.iter().all(|n| n.name == "CONC"));
-    assert_eq!(served.load(Ordering::SeqCst), 6, "server should have served all 6");
+    assert_eq!(
+        served.load(Ordering::SeqCst),
+        6,
+        "server should have served all 6"
+    );
     let max = max_active.load(Ordering::SeqCst);
-    assert!(max <= 2, "concurrency cap exceeded: {max} concurrent requests");
-    assert!(max >= 2, "expected batching under the cap, got max concurrent {max}");
+    assert!(
+        max <= 2,
+        "concurrency cap exceeded: {max} concurrent requests"
+    );
+    assert!(
+        max >= 2,
+        "expected batching under the cap, got max concurrent {max}"
+    );
 }
 
 #[tokio::test]
 async fn admin_requires_bearer_token() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-noauth", std::process::id()));
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-admin-noauth", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
@@ -210,18 +268,30 @@ async fn admin_requires_bearer_token() {
     let app = server::routes::build_router(pool, cfg, admin).await;
 
     // 无 header
-    let resp = app.clone()
-        .oneshot(Request::builder().uri("/api/admin/sources").body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/sources")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
     // 错误 token
-    let resp = app.clone()
-        .oneshot(Request::builder()
-            .uri("/api/admin/sources")
-            .header("authorization", "Bearer wrong")
-            .body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/sources")
+                .header("authorization", "Bearer wrong")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
@@ -235,51 +305,96 @@ async fn admin_crud_sources() {
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
     let auth = |mut req: Request<Body>| {
-        req.headers_mut().insert("authorization", format!("Bearer {}", admin).parse().unwrap());
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
         req
     };
 
     // create
-    let resp = app.clone().oneshot(auth(Request::builder()
-        .method("POST")
-        .uri("/api/admin/sources")
-        .header("content-type", "application/json")
-        .body(Body::from(json!({"url": "https://example.com/sub", "name": "src1"}).to_string()))
-        .unwrap()))
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("POST")
+                .uri("/api/admin/sources")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"url": "https://example.com/sub", "name": "src1"}).to_string(),
+                ))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let id = v["id"].as_i64().unwrap();
 
     // list
-    let resp = app.clone().oneshot(auth(Request::builder().uri("/api/admin/sources").body(Body::empty()).unwrap())).await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .uri("/api/admin/sources")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
 
     // update enabled=false
-    let resp = app.clone().oneshot(auth(Request::builder()
-        .method("PUT")
-        .uri(format!("/api/admin/sources/{}", id))
-        .header("content-type", "application/json")
-        .body(Body::from(json!({"enabled": false}).to_string()))
-        .unwrap()))
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/admin/sources/{}", id))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"enabled": false}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
     // delete
-    let resp = app.clone().oneshot(auth(Request::builder()
-        .method("DELETE")
-        .uri(format!("/api/admin/sources/{}", id))
-        .body(Body::empty()).unwrap()))
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/admin/sources/{}", id))
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     // list empty
-    let resp = app.clone().oneshot(auth(Request::builder().uri("/api/admin/sources").body(Body::empty()).unwrap())).await.unwrap();
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .uri("/api/admin/sources")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 0);
 }
@@ -287,9 +402,13 @@ async fn admin_crud_sources() {
 #[tokio::test]
 async fn preview_returns_node_list() {
     let mock = MockServer::start().await;
-    Mock::given(method("GET")).and(path("/sub"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"))
-        .mount(&mock).await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"),
+        )
+        .mount(&mock)
+        .await;
 
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-preview", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
@@ -297,17 +416,30 @@ async fn preview_returns_node_list() {
     let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-        .bind(&url).bind("mock").bind("now").execute(&pool).await.unwrap();
+        .bind(&url)
+        .bind("mock")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
-    let resp = app.clone().oneshot(Request::builder()
-        .uri("/api/admin/preview")
-        .header("authorization", format!("Bearer {}", admin))
-        .body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/preview")
+                .header("authorization", format!("Bearer {}", admin))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["total"], 1);
     assert_eq!(v["nodes"][0]["name"], "A");
@@ -323,34 +455,50 @@ async fn config_get_and_rotate() {
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
     // GET config
-    let resp = app.clone().oneshot(Request::builder()
-        .uri("/api/admin/config")
-        .header("authorization", format!("Bearer {}", admin))
-        .body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/config")
+                .header("authorization", format!("Bearer {}", admin))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["subscribe_token"], sub);
 
     // rotate subscribe token
-    let resp = app.clone().oneshot(Request::builder()
-        .method("PUT")
-        .uri("/api/admin/config")
-        .header("authorization", format!("Bearer {}", admin))
-        .header("content-type", "application/json")
-        .body(Body::from(json!({"rotate": "subscribe"}).to_string()))
-        .unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/admin/config")
+                .header("authorization", format!("Bearer {}", admin))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"rotate": "subscribe"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_ne!(v["subscribe_token"], sub);
 }
 
 #[tokio::test]
 async fn admin_token_rotation_takes_effect_live() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-rotate", std::process::id()));
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-admin-rotate", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
@@ -359,44 +507,79 @@ async fn admin_token_rotation_takes_effect_live() {
 
     let auth = |token: &str, req: Request<Body>| {
         let mut req = req;
-        req.headers_mut().insert("authorization", format!("Bearer {}", token).parse().unwrap());
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
         req
     };
 
     // 轮换 admin token（用旧 token 调 PUT）
-    let resp = app.clone().oneshot(auth(&admin, Request::builder()
-        .method("PUT")
-        .uri("/api/admin/config")
-        .header("content-type", "application/json")
-        .body(Body::from(json!({"rotate": "admin"}).to_string()))
-        .unwrap()))
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            &admin,
+            Request::builder()
+                .method("PUT")
+                .uri("/api/admin/config")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"rotate": "admin"}).to_string()))
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let new_admin = v["admin_token"].as_str().unwrap().to_string();
     assert_ne!(new_admin, admin);
 
     // 旧 token 立即失效（内存锁已更新）
-    let resp = app.clone().oneshot(auth(&admin, Request::builder()
-        .uri("/api/admin/config").body(Body::empty()).unwrap()))
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            &admin,
+            Request::builder()
+                .uri("/api/admin/config")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
     // 新 token 生效
-    let resp = app.clone().oneshot(auth(&new_admin, Request::builder()
-        .uri("/api/admin/config").body(Body::empty()).unwrap()))
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            &new_admin,
+            Request::builder()
+                .uri("/api/admin/config")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
 async fn assert_error_json(resp: axum::response::Response, expected_code: &str) {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "expected 400");
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes)
-        .unwrap_or_else(|e| panic!("response body is not JSON: {e:?} -> {:?}", &bytes));
-    assert_eq!(v["error"]["code"], expected_code, "unexpected error code: {v}");
-    assert!(v["error"]["message"].is_string(), "missing error.message: {v}");
+        .unwrap_or_else(|e| panic!("response body is not JSON: {e:?} -> {:?}", bytes));
+    assert_eq!(
+        v["error"]["code"], expected_code,
+        "unexpected error code: {v}"
+    );
+    assert!(
+        v["error"]["message"].is_string(),
+        "missing error.message: {v}"
+    );
     assert!(!v["error"]["message"].as_str().unwrap().is_empty());
 }
 
@@ -410,14 +593,19 @@ async fn rejection_non_numeric_id_returns_unified_json() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
-    let resp = app.clone().oneshot(Request::builder()
-        .method("PUT")
-        .uri("/api/admin/sources/abc")
-        .header("authorization", format!("Bearer {}", admin))
-        .header("content-type", "application/json")
-        .body(Body::from(json!({"enabled": false}).to_string()))
-        .unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/admin/sources/abc")
+                .header("authorization", format!("Bearer {}", admin))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"enabled": false}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_error_json(resp, "invalid_path").await;
 }
 
@@ -431,14 +619,19 @@ async fn rejection_malformed_json_returns_unified_json() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin.clone()).await;
 
-    let resp = app.clone().oneshot(Request::builder()
-        .method("POST")
-        .uri("/api/admin/sources")
-        .header("authorization", format!("Bearer {}", admin))
-        .header("content-type", "application/json")
-        .body(Body::from("{\"url\": \"\"")) // 语法错误的 JSON
-        .unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/admin/sources")
+                .header("authorization", format!("Bearer {}", admin))
+                .header("content-type", "application/json")
+                .body(Body::from("{\"url\": \"\"")) // 语法错误的 JSON
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_error_json(resp, "invalid_json").await;
 }
 
@@ -446,7 +639,8 @@ async fn rejection_malformed_json_returns_unified_json() {
 async fn subscribe_skips_unserializable_node_instead_of_500() {
     // 源包含一个可解析但无法序列化的 wireguard 节点（缺 privateKey）+ 一个正常 ss 节点
     let mock = MockServer::start().await;
-    Mock::given(method("GET")).and(path("/sub"))
+    Mock::given(method("GET"))
+        .and(path("/sub"))
         .respond_with(ResponseTemplate::new(200).set_body_string(
             "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#OK\n\
              wireguard://cHVibGljS2V5MTIz@1.2.3.4:443?publicKey=cHVibGljS2V5MTIz#WG\n",
@@ -460,17 +654,33 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     let (sub, admin) = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-        .bind(&url).bind("mock").bind("now").execute(&pool).await.unwrap();
+        .bind(&url)
+        .bind("mock")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
-    let resp = app.clone()
-        .oneshot(Request::builder()
-            .uri(format!("/api/subscribe?token={}&format=clash", sub))
-            .body(Body::empty()).unwrap())
-        .await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK, "bad node must not 500 the subscription");
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/subscribe?token={}&format=clash", sub))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "bad node must not 500 the subscription"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(body.contains("name: OK"), "good node must survive");
     assert!(!body.contains("WG"), "unserializable node must be skipped");
@@ -478,7 +688,8 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
 
 #[tokio::test]
 async fn api_path_variants_return_json_404() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-api-variants", std::process::id()));
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-api-variants", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     // 构造含 index.html 的 dist，确保 SPA 回退存在（若被绕过会返回 HTML 200）
     let dist = tmp.join("web-dist");
@@ -487,16 +698,32 @@ async fn api_path_variants_return_json_404() {
 
     let pool = test_pool(&tmp).await;
     let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
-    let cfg = AppConfig { web_dist: dist, ..test_config(&tmp) };
+    let cfg = AppConfig {
+        web_dist: dist,
+        ..test_config(&tmp)
+    };
     let app = server::routes::build_router(pool, cfg, admin).await;
 
     for path in ["/api", "//api/admin/sources", "/api%2Fadmin/preview"] {
-        let resp = app.clone()
+        let resp = app
+            .clone()
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await.unwrap();
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "path {path} must be JSON 404");
-        let ct = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
-        assert!(ct.contains("application/json"), "path {path} must return JSON, got {ct:?}");
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "path {path} must be JSON 404"
+        );
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("application/json"),
+            "path {path} must return JSON, got {ct:?}"
+        );
     }
 }
 
@@ -523,35 +750,70 @@ async fn static_index_served_from_dist() {
     let app = server::routes::build_router(pool, cfg.clone(), admin.clone()).await;
 
     // 根路由仍返回健康检查文本（不经过 fallback）
-    let resp = app.clone()
+    let resp = app
+        .clone()
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     assert_eq!(&bytes[..], b"sub-merge is running");
 
     // 静态资源从 dist 目录提供，带正确的 content-type
-    let resp = app.clone()
-        .oneshot(Request::builder().uri("/app.css").body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/app.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap().to_string();
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     assert_eq!(&bytes[..], b"body{color:red}");
     assert!(ct.starts_with("text/css"), "unexpected content-type: {ct}");
 
     // SPA 回退：不存在的路径返回 index.html
-    let resp = app.clone()
-        .oneshot(Request::builder().uri("/some/spa/route").body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/some/spa/route")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     assert_eq!(&bytes[..], b"<html>sub-merge</html>");
 
     // 路径穿越 → 403
-    let resp = app.clone()
-        .oneshot(Request::builder().uri("/../etc/passwd").body(Body::empty()).unwrap())
-        .await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/../etc/passwd")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 
     // dist 目录不存在时 fallback 返回 404
@@ -560,6 +822,14 @@ async fn static_index_served_from_dist() {
         ..cfg
     };
     let app = server::routes::build_router(test_pool(&tmp).await, empty_cfg, admin).await;
-    let resp = app.oneshot(Request::builder().uri("/missing.js").body(Body::empty()).unwrap()).await.unwrap();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/missing.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

@@ -39,10 +39,10 @@ fn parse_ssr_decoded(decoded: &str) -> Result<ProxyNode, ParseError> {
     for kv in query.split('&') {
         // 去掉开头的 "/?" 前缀
         let kv = kv.trim_start_matches('/').trim_start_matches('?');
-        if let Some((k, v)) = kv.split_once('=') {
-            if k == "remarks" {
-                name = decode_base64_url_string(v).unwrap_or_default();
-            }
+        if let Some((k, v)) = kv.split_once('=')
+            && k == "remarks"
+        {
+            name = decode_base64_url_string(v).unwrap_or_default();
         }
     }
 
@@ -61,18 +61,39 @@ pub fn serialize_ssr(node: &ProxyNode) -> Result<String, SerializeError> {
     if node.kind != crate::model::Protocol::Ssr {
         return Err(SerializeError::UnsupportedProtocol(node.kind.as_str()));
     }
-    let crypto = node.crypto.as_ref().ok_or(SerializeError::MissingField("crypto"))?;
-    let password = node.password.as_ref().ok_or(SerializeError::MissingField("password"))?;
+    let crypto = node
+        .crypto
+        .as_ref()
+        .ok_or(SerializeError::MissingField("crypto"))?;
+    let password = node
+        .password
+        .as_ref()
+        .ok_or(SerializeError::MissingField("password"))?;
     // 内部 password / remarks 用 base64url（无 padding），避免 STANDARD 字母表产生 '/'
     // 干扰 parse_ssr_decoded 中的 query 分隔符 find('/')。解析端 decode_base64_url 两种字母表都兼容。
-    let pass_b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, password.as_bytes());
-    let remarks_b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, node.name.as_bytes());
+    let pass_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        password.as_bytes(),
+    );
+    let remarks_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        node.name.as_bytes(),
+    );
     let plain = format!(
         "{}:{}:{}:{}:{}:{}/?remarks={}",
-        node.server, node.port, "auth_aes128_md5", crypto.as_str(), "plain", pass_b64, remarks_b64
+        node.server,
+        node.port,
+        "auth_aes128_md5",
+        crypto.as_str(),
+        "plain",
+        pass_b64,
+        remarks_b64
     );
     // 整体 base64url（去 padding）
-    let b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, plain.as_bytes());
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        plain.as_bytes(),
+    );
     Ok(format!("ssr://{}", b64))
 }
 

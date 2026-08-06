@@ -9,7 +9,9 @@ pub fn is_hysteria(uri: &str) -> bool {
 }
 
 pub fn parse_hysteria(uri: &str) -> Result<ProxyNode, ParseError> {
-    let rest = uri.strip_prefix("hysteria://").ok_or(ParseError::UnsupportedProtocol)?;
+    let rest = uri
+        .strip_prefix("hysteria://")
+        .ok_or(ParseError::UnsupportedProtocol)?;
     let (host_query, fragment) = match rest.find('#') {
         Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         None => (rest, None),
@@ -27,7 +29,9 @@ pub fn parse_hysteria(uri: &str) -> Result<ProxyNode, ParseError> {
 
     if let Some(q) = query {
         for kv in q.split('&') {
-            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Some((k, v)) = kv.split_once('=') else {
+                continue;
+            };
             let v = percent_decode(v).unwrap_or_default();
             match k {
                 "auth" => auth = Some(v),
@@ -61,7 +65,12 @@ pub fn serialize_hysteria(node: &ProxyNode) -> Result<String, SerializeError> {
         return Err(SerializeError::UnsupportedProtocol(node.kind.as_str()));
     }
     let auth = node.password.as_deref().unwrap_or_default();
-    let mut out = format!("hysteria://{}:{}?protocol=udp&auth={}", node.server, node.port, encode(auth));
+    let mut out = format!(
+        "hysteria://{}:{}?protocol=udp&auth={}",
+        node.server,
+        node.port,
+        encode(auth)
+    );
     if let Some(t) = &node.tls {
         if let Some(s) = &t.sni {
             out.push_str(&format!("&sni={}", encode(s)));
