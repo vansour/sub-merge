@@ -13,24 +13,46 @@ pub struct SourceError {
     pub reason: String,
 }
 
-/// 并发拉取全部 enabled 源（受 cfg.concurrency 上限约束），解析合并。
+/// 并发拉取 enabled 源（受 cfg.concurrency 上限约束），解析合并。
+/// source_ids = Some(ids) 时仅拉取指定源的子集（组合订阅）；None 拉取全部。
 /// 返回 (节点, 错误源列表)。
-pub async fn fetch_and_merge(state: &AppState) -> (Vec<ProxyNode>, Vec<SourceError>) {
-    let sources: Vec<(i64, String, String, String)> =
-        sqlx::query("SELECT id, kind, name, url FROM sources WHERE enabled = 1")
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|r| {
-                (
-                    r.get::<i64, _>(0),
-                    r.get::<String, _>(1),
-                    r.get::<String, _>(2),
-                    r.get::<String, _>(3),
-                )
-            })
-            .collect();
+pub async fn fetch_and_merge(
+    state: &AppState,
+    source_ids: Option<&[i64]>,
+) -> (Vec<ProxyNode>, Vec<SourceError>) {
+    let sources: Vec<(i64, String, String, String)> = match source_ids {
+        Some(ids) if !ids.is_empty() => {
+            // 组合成员子集：动态 IN 子句
+            let placeholders = std::iter::repeat_n("?", ids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "SELECT id, kind, name, url FROM sources WHERE enabled = 1 AND id IN ({placeholders})"
+            )));
+            for id in ids {
+                q = q.bind(id);
+            }
+            q.fetch_all(&state.pool).await.unwrap_or_default()
+        }
+        // 空成员组合：无源可拉
+        Some(_) => Vec::new(),
+        None => {
+            sqlx::query("SELECT id, kind, name, url FROM sources WHERE enabled = 1")
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default()
+        }
+    }
+    .into_iter()
+    .map(|r| {
+        (
+            r.get::<i64, _>(0),
+            r.get::<String, _>(1),
+            r.get::<String, _>(2),
+            r.get::<String, _>(3),
+        )
+    })
+    .collect();
 
     let max_nodes = state.cfg.max_nodes;
     let client = Arc::new(state.http.clone());

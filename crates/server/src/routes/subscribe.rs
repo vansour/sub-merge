@@ -19,14 +19,24 @@ pub async fn subscribe_handler(
     q: Result<Query<SubscribeQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
     let Query(q) = q.map_err(ApiError::from)?;
-    // 组合订阅名必须匹配 settings 中的 combined_name（缺省 merged）。
-    // 不匹配 → 404（区别于 SPA 回退的 HTML 404，走统一 JSON 错误格式）。
-    let combined = crate::db::get_setting(&state.pool, "combined_name")
-        .await?
-        .unwrap_or_else(|| "merged".to_string());
-    if name != combined {
+    // 组合订阅名必须匹配 combined_subs 表；不匹配 → 404
+    let combined: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, name FROM combined_subs WHERE name = ?")
+            .bind(&name)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(ApiError::from)?;
+    let Some((combined_id, _)) = combined else {
         return Err(ApiError::not_found("combined subscription not found"));
-    }
+    };
+    // 成员源 id 列表（空成员 → 空输出，200）
+    let member_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT source_id FROM combined_sources WHERE combined_id = ? ORDER BY source_id",
+    )
+    .bind(combined_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(ApiError::from)?;
 
     let format = match &q.format {
         Some(f) => {
@@ -35,7 +45,7 @@ pub async fn subscribe_handler(
         None => OutputFormat::Clash,
     };
 
-    let (nodes, source_errors) = service::fetch_and_merge(&state).await;
+    let (nodes, source_errors) = service::fetch_and_merge(&state, Some(&member_ids)).await;
 
     // 若所有源都失败，返回 502 附明细
     if nodes.is_empty() && !source_errors.is_empty() {

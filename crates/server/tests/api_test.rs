@@ -125,6 +125,11 @@ async fn subscribe_without_token_succeeds() {
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    // 空成员组合：无源可拉，输出空 clash 配置
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -189,10 +194,27 @@ async fn subscribe_returns_subscription() {
 
     // 插入一个指向 mock server 的源
     let url = format!("{}/sub", mock.uri());
-    sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-        .bind(&url)
-        .bind("mock-source")
-        .bind("now")
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+            .bind(&url)
+            .bind("mock-source")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
+    let src_id = res.last_insert_rowid();
+    // 建组合勾选该源
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'merged'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(src_id)
         .execute(&pool)
         .await
         .unwrap();
@@ -225,6 +247,11 @@ async fn subscribe_wrong_format_returns_bad_request() {
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    // 组合必须存在，format 校验才会被触达
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg, admin).await;
 
@@ -315,7 +342,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
     };
     let state = server::state::AppState::new(pool, cfg, admin);
 
-    let (nodes, errors) = server::service::fetch_and_merge(&state).await;
+    let (nodes, errors) = server::service::fetch_and_merge(&state, None).await;
 
     assert!(
         errors.is_empty(),
@@ -748,10 +775,27 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     let pool = test_pool(&tmp).await;
     let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
-    sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-        .bind(&url)
-        .bind("mock")
-        .bind("now")
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+            .bind(&url)
+            .bind("mock")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
+    let src_id = res.last_insert_rowid();
+    // 建组合勾选该源
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'merged'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(src_id)
         .execute(&pool)
         .await
         .unwrap();
@@ -1045,7 +1089,7 @@ async fn single_source_parses_without_network() {
     .await
     .unwrap();
 
-    let (nodes, errors) = server::service::fetch_and_merge(&state).await;
+    let (nodes, errors) = server::service::fetch_and_merge(&state, None).await;
     assert!(
         errors.is_empty(),
         "expected no source errors, got {errors:?}"
@@ -1078,7 +1122,7 @@ async fn invalid_single_source_reports_source_error() {
     .await
     .unwrap();
 
-    let (nodes, errors) = server::service::fetch_and_merge(&state).await;
+    let (nodes, errors) = server::service::fetch_and_merge(&state, None).await;
     assert!(nodes.is_empty());
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].source_name, "bad-src");
@@ -1543,4 +1587,201 @@ async fn combined_crud_and_members() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn combined_subscription_serves_only_members() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#IN\n"),
+        )
+        .mount(&mock)
+        .await;
+
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-combined-sub", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let url = format!("{}/sub", mock.uri());
+    // remote 源（mock，节点 IN）与 single 源（节点 OUT，指向不可达地址）
+    let res = sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind(&url)
+    .bind("in-src")
+    .bind("remote")
+    .bind("now")
+    .execute(&pool)
+    .await
+    .unwrap();
+    let in_id = res.last_insert_rowid();
+    sqlx::query(
+        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+    )
+    .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#OUT")
+    .bind("out-src")
+    .bind("single")
+    .bind("now")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // 组合只勾选 in-src
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'grp'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(in_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/subscribe/grp?format=clash")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains("name: IN"), "member node must be present");
+    assert!(!body.contains("OUT"), "non-member must be excluded");
+}
+
+#[tokio::test]
+async fn combined_subscription_empty_members_returns_200() {
+    let tmp = std::env::temp_dir().join(format!(
+        "submerge-test-{}-combined-empty",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('empty-grp', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/subscribe/empty-grp?format=clash")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "empty members must be 200, not 502"
+    );
+}
+
+#[tokio::test]
+async fn preview_combined_filter() {
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-preview-cmb", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    let res = sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S1', 's1', 'single', 1, 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let src = res.last_insert_rowid();
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'grp'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(src)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+
+    let auth = |mut req: Request<Body>| {
+        req.headers_mut().insert(
+            "authorization",
+            format!("Bearer {}", admin).parse().unwrap(),
+        );
+        req
+    };
+
+    // 按组合过滤
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .uri("/admin/preview?combined=grp")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["total"], 1);
+    assert_eq!(v["nodes"][0]["name"], "S1");
+
+    // 不存在的组合 → 404
+    let resp = app
+        .clone()
+        .oneshot(auth(
+            Request::builder()
+                .uri("/admin/preview?combined=nope")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // 省略参数 → 全部源
+    let resp = app
+        .oneshot(auth(
+            Request::builder()
+                .uri("/admin/preview")
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["total"], 1);
 }
