@@ -477,6 +477,30 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
 }
 
 #[tokio::test]
+async fn api_path_variants_return_json_404() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-api-variants", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    // 构造含 index.html 的 dist，确保 SPA 回退存在（若被绕过会返回 HTML 200）
+    let dist = tmp.join("web-dist");
+    std::fs::create_dir_all(&dist).unwrap();
+    std::fs::write(dist.join("index.html"), "<html>sub-merge</html>").unwrap();
+
+    let pool = test_pool(&tmp).await;
+    let (_, admin) = server::db::ensure_tokens(&pool).await.unwrap();
+    let cfg = AppConfig { web_dist: dist, ..test_config(&tmp) };
+    let app = server::routes::build_router(pool, cfg, admin).await;
+
+    for path in ["/api", "//api/admin/sources", "/api%2Fadmin/preview"] {
+        let resp = app.clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "path {path} must be JSON 404");
+        let ct = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
+        assert!(ct.contains("application/json"), "path {path} must return JSON, got {ct:?}");
+    }
+}
+
+#[tokio::test]
 async fn static_index_served_from_dist() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-static", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
