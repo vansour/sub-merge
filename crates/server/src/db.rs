@@ -4,6 +4,7 @@ use argon2::Argon2;
 use argon2::password_hash::{
     PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng,
 };
+use chrono::Timelike;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
@@ -105,20 +106,30 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
     // 注意：SQLite 的 ALTER TABLE ADD COLUMN 不允许非常量 DEFAULT（datetime('now')
     // 会被拒绝），故先用空串常量默认值加列，再回填 RFC3339 格式的当前时间——
     // 保持"旧会话获得全新 last_used_at、迁移后仍有效"的意图。
+    // 回填只在 ALTER 实际成功（旧库首次迁移）时执行：新库 CREATE TABLE 自带该列，
+    // ALTER 报 duplicate column → migrated=false → 跳过回填（新库无空值，正确）。
+    let mut migrated = false;
     if let Err(e) =
         sqlx::query("ALTER TABLE sessions ADD COLUMN last_used_at TEXT NOT NULL DEFAULT ''")
             .execute(&pool)
             .await
-        && !e.to_string().contains("duplicate column name")
     {
-        return Err(e.into());
+        if !e.to_string().contains("duplicate column name") {
+            return Err(e.into());
+        }
+        // 列已存在：不执行回填（旧库迁移只发生一次）
+    } else {
+        migrated = true;
     }
-    sqlx::query(
-        "UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
-         WHERE last_used_at = ''",
-    )
-    .execute(&pool)
-    .await?;
+    if migrated {
+        // 仅在本次 ALTER 实际成功（旧库首次迁移）时回填
+        sqlx::query(
+            "UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+             WHERE last_used_at = ''",
+        )
+        .execute(&pool)
+        .await?;
+    }
 
     Ok(pool)
 }
@@ -261,8 +272,11 @@ pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> 
     let Some(row) = row else { return Ok(false) };
     let last_used: String = row.get(0);
     if ttl_days > 0 {
+        // i64 回绕加固：u64 超 i64 上界时按最大 TTL 处理（避免 `as i64` 负值回绕
+        // 导致会话立即全部过期）
+        let ttl = i64::try_from(ttl_days).unwrap_or(i64::MAX);
         let expired = match chrono::DateTime::parse_from_rfc3339(&last_used) {
-            Ok(last) => last + chrono::Duration::days(ttl_days as i64) < chrono::Utc::now(),
+            Ok(last) => last + chrono::Duration::days(ttl) < chrono::Utc::now(),
             Err(_) => true, // 无法解析视为过期（含旧格式空串）
         };
         if expired {
@@ -288,7 +302,13 @@ pub async fn delete_expired_sessions(pool: &SqlitePool, ttl_days: u64) -> Result
     if ttl_days == 0 {
         return Ok(());
     }
-    let cutoff = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
+    // i64 回绕加固同上；cutoff 截断到秒精度，与迁移回填/存储格式对齐（RFC3339 秒级），
+    // 避免纳秒级 now 与秒级 last_used_at 字典序比较产生 1 秒窗口误删
+    let ttl = i64::try_from(ttl_days).unwrap_or(i64::MAX);
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(ttl))
+        .with_nanosecond(0) // 截断到秒精度，与迁移回填/存储格式对齐
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339();
     sqlx::query("DELETE FROM sessions WHERE last_used_at < ?")
         .bind(cutoff)
         .execute(pool)

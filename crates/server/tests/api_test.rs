@@ -1999,6 +1999,10 @@ async fn login_and_logout_flow() {
     assert_eq!(s, StatusCode::OK);
     let token = v["token"].as_str().unwrap().to_string();
     assert_eq!(token.len(), 64);
+    assert!(
+        token.chars().all(|c| c.is_ascii_hexdigit()),
+        "token must be hex: {token}"
+    );
 
     // 错误密码 / 不存在用户 → 统一 401
     for body in [
