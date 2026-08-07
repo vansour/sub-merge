@@ -252,8 +252,8 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         })
         .collect();
 
-    // 组合预览下拉选项（预渲染，同 preview.rs 模式）。下拉是非受控 + onchange 触发，
-    // selected 属性不需要；空选项（value=""）对应「选择组合订阅」= 全部源预览。
+    // 组合预览下拉选项（预渲染，同 preview.rs 模式）。下拉受控（value 绑定 preview_combined），
+    // 组合改名/删除后不会显示漂移；空选项（value=""）对应「选择组合订阅」= 全部源预览。
     let combined_options: Vec<Element> = combined_list
         .iter()
         .map(|c| {
@@ -301,6 +301,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             div { class: "preview-filter-row",
                 select {
                     class: "preview-filter",
+                    value: preview_combined.read().clone().unwrap_or_default(),
                     onchange: move |e| {
                         let v = e.value();
                         let v = if v.is_empty() { None } else { Some(v) };

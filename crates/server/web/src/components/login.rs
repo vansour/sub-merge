@@ -24,7 +24,7 @@ pub fn clear_token() {
 
 #[component]
 pub fn Login(on_login: EventHandler<String>) -> Element {
-    let mut needs_setup = use_signal(|| None::<bool>); // None=加载中
+    let needs_setup = use_signal(|| None::<bool>); // None=加载中（写入只经 probe 闭包的克隆句柄）
     let mut input = use_signal(String::new);
     let mut login_pass = use_signal(String::new);
     let mut setup_user = use_signal(String::new);
@@ -33,15 +33,26 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
     let mut error = use_signal(String::new);
     let mut loading = use_signal(|| false);
 
-    // 挂载时探测 setup 状态（无依赖数组，用 None 守卫一次性执行）
+    // 探测 setup 状态的可复用闭包：挂载时调用一次，探测失败后可由「重试」按钮再次调用。
+    let probe = use_callback(move |_: ()| {
+        let mut needs_setup = needs_setup.clone();
+        let mut error = error.clone();
+        spawn(async move {
+            match request("GET", "/admin/setup-status", None, None).await {
+                Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
+                    Ok(v) => {
+                        needs_setup.set(Some(v["needs_setup"].as_bool().unwrap_or(false)));
+                        error.set(String::new());
+                    }
+                    Err(e) => error.set(format!("解析失败: {e}")),
+                },
+                Err(e) => error.set(format!("检查初始化状态失败: {e}")),
+            }
+        });
+    });
+    // 挂载时探测一次（probe.call 立即 spawn 请求并返回）
     use_future(move || async move {
-        match request("GET", "/admin/setup-status", None, None).await {
-            Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
-                Ok(v) => needs_setup.set(Some(v["needs_setup"].as_bool().unwrap_or(false))),
-                Err(e) => error.set(format!("解析失败: {e}")),
-            },
-            Err(e) => error.set(format!("检查初始化状态失败: {e}")),
-        }
+        probe.call(());
     });
 
     // 登录：POST /admin/login，成功拿到会话 token 交给 App 写入。
@@ -57,7 +68,10 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
             let body = serde_json::json!({"username": user, "password": pass}).to_string();
             match request("POST", "/admin/login", Some(body), None).await {
                 Ok(b) => match serde_json::from_str::<serde_json::Value>(&b) {
-                    Ok(v) => on_login.call(v["token"].as_str().unwrap_or_default().to_string()),
+                    Ok(v) => match v["token"].as_str() {
+                        Some(t) if !t.is_empty() => on_login.call(t.to_string()),
+                        _ => error.set("登录响应缺少 token，请重试".into()),
+                    },
                     Err(e) => error.set(format!("解析失败: {e}")),
                 },
                 Err(e) => error.set(format!("登录失败: {e}")),
@@ -91,9 +105,10 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
                         .to_string();
                     match request("POST", "/admin/login", Some(login_body), None).await {
                         Ok(b) => match serde_json::from_str::<serde_json::Value>(&b) {
-                            Ok(v) => {
-                                on_login.call(v["token"].as_str().unwrap_or_default().to_string())
-                            }
+                            Ok(v) => match v["token"].as_str() {
+                                Some(t) if !t.is_empty() => on_login.call(t.to_string()),
+                                _ => error.set("登录响应缺少 token，请重试".into()),
+                            },
                             Err(e) => error.set(format!("解析失败: {e}")),
                         },
                         Err(e) => error.set(format!("登录失败: {e}")),
@@ -109,10 +124,11 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
     // None=探测 setup 状态（全页转圈）；true=首建引导；false=登录。
     let body: Element = match *needs_setup.read() {
         None => rsx! {
-            // 探测失败（网络错误/非 JSON）时 needs_setup 保持 None，但错误必须可见，
-            // 否则用户卡在无限转圈页无任何提示。
+            // 探测失败（网络错误/非 JSON）时 needs_setup 保持 None：错误可见 + 重试按钮，
+            // 否则用户卡在无限转圈页无任何提示、也无法恢复。
             if !error.read().is_empty() {
                 p { class: "error-text", "{error}" }
+                button { class: "btn btn-primary", onclick: move |_| probe.call(()), "重试" }
             } else {
                 div { class: "login-logo", Spinner { size: 40 } }
             }

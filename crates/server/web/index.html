@@ -284,6 +284,8 @@
       .nav { flex-direction: row; gap: 4px; }
       .nav-item { width: auto; padding: 8px 10px; }
       .nav-item span { display: none; }
+      /* 覆盖：分组头箭头在顶栏模式下仍需可见（specificity 0,2,0 > 0,1,1） */
+      .nav-group-head .nav-chevron { display: inline-flex; }
       .sidebar-footer { border-top: none; padding: 0; flex-direction: row; margin-left: 8px; }
       .sidebar-version { display: none; }
       .main { padding: 16px; }

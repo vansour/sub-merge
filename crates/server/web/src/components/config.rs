@@ -5,7 +5,6 @@
 use crate::api::request;
 use crate::components::icon::Spinner;
 use crate::components::login::clear_token;
-use crate::components::toast::{ToastKind, push_toast, use_toast};
 use crate::data::DataStore;
 use dioxus::prelude::*;
 
@@ -13,7 +12,6 @@ use dioxus::prelude::*;
 pub fn Config(token: Signal<Option<String>>) -> Element {
     let data = use_context::<DataStore>();
     let mut error = use_signal(String::new);
-    let toasts = use_toast();
 
     // 状态
     let mut old_pass = use_signal(String::new);
@@ -40,14 +38,13 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         let current = token.read().clone();
         let body = serde_json::json!({"change_password": {"old": old, "new": new_p}}).to_string();
         let mut token2 = token.clone();
-        let toasts = toasts.clone();
         changing.set(true);
         spawn(async move {
             match request("PUT", "/admin/config", Some(body), current.as_deref()).await {
                 Ok(_) => {
-                    push_toast(toasts, ToastKind::Success, "密码已修改，请重新登录");
+                    // 会话已失效（服务端已删全部会话），直接回登录页；toast 会被卸载不渲染，故不发
                     clear_token();
-                    token2.set(None); // 会话已失效，回登录页
+                    token2.set(None);
                 }
                 Err(e) => error.set(format!("修改失败: {e}")),
             }

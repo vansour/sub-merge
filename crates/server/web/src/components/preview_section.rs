@@ -18,6 +18,9 @@ pub fn PreviewSection(
     let data = use_signal(|| None::<PreviewResp>);
     let loading = use_signal(|| false);
     let error = use_signal(String::new);
+    // 请求序号：每次拉取 +1，响应到达时与当前序号比对，过期（慢的旧请求晚到）直接丢弃。
+    // 外层绑定无需 mut：所有写入都在 load 闭包内对克隆句柄进行（Signal 句柄 Copy）。
+    let req_seq = use_signal(|| 0u32);
     // 当前拉取参数键（kind+combined 组合）；变化时触发重拉
     let key = format!("{}|{}", kind.unwrap_or(""), combined.as_deref().unwrap_or(""));
     let mut loaded_key = use_signal(|| None::<String>);
@@ -29,6 +32,12 @@ pub fn PreviewSection(
         let mut data = data.clone();
         let mut loading = loading.clone();
         let mut error = error.clone();
+        let mut req_seq = req_seq.clone();
+        let seq = {
+            let mut s = req_seq.write();
+            *s += 1;
+            *s
+        };
         spawn(async move {
             loading.set(true);
             error.set(String::new());
@@ -47,13 +56,25 @@ pub fn PreviewSection(
                 }
             };
             match request("GET", &path, None, token.as_deref()).await {
-                Ok(body) => match serde_json::from_str::<PreviewResp>(&body) {
-                    Ok(r) => data.set(Some(r)),
-                    Err(e) => error.set(format!("解析失败: {}", e)),
-                },
-                Err(e) => error.set(e.to_string()),
+                Ok(body) => {
+                    if *req_seq.read() != seq {
+                        return; // 过期响应（更新的请求已发起）直接丢弃
+                    }
+                    match serde_json::from_str::<PreviewResp>(&body) {
+                        Ok(r) => data.set(Some(r)),
+                        Err(e) => error.set(format!("解析失败: {}", e)),
+                    }
+                }
+                Err(e) => {
+                    if *req_seq.read() == seq {
+                        error.set(e.to_string());
+                    }
+                }
             }
-            loading.set(false);
+            // loading 关闭同样受 seq 保护：过期请求不得关掉新请求的 loading
+            if *req_seq.read() == seq {
+                loading.set(false);
+            }
         });
     };
 
