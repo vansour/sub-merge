@@ -8,3 +8,5 @@ submerge-data/
 *.db
 *.db-wal
 *.db-shm
+# Python 字节码缓存（scripts/ 下 py_compile 产物）
+__pycache__/

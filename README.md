@@ -5,7 +5,7 @@
 ## 功能
 
 - 聚合多个订阅源（URL），并发拉取（默认并发 8，单源超时 15s），单源失败自动跳过
-- 两种源类型：单条节点（URI 直接解析，不拉网络）与远程订阅（订阅链接，拉取后解析）；组合订阅使用命名路径输出（无 token 鉴权）
+- 两种源类型：单条节点（URI 直接解析，不拉网络）与远程订阅（订阅链接，拉取后解析）；组合订阅使用命名路径输出（无鉴权）
 - 11 种协议解析：ss、ssr、socks5、http、vmess、vless、trojan、hysteria、hysteria2、tuic、wireguard
 - 3 种输出格式：Clash / V2Ray / Sing-box
 - 输入支持：V2Ray base64 订阅、明文 URI 列表、Clash YAML（`proxies` 段）

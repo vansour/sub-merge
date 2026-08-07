@@ -20,7 +20,7 @@ build-server:
 build: build-web build-server
 
 # 本地运行：先构建前端，再用 WEB_DIST 指向 dist 启动 server。
-# DATABASE_PATH 默认 ./submerge.db（首次运行自动建库并生成 token）。
+# DATABASE_PATH 默认 ./submerge.db（首次运行自动建库，登录页引导创建管理员）。
 run: build-web
 	WEB_DIST=./crates/server/web/dist cargo run -p server
 
