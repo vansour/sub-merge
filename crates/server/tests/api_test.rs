@@ -1827,6 +1827,14 @@ async fn user_and_session_db_functions() {
     server::db::delete_all_sessions(&pool).await.unwrap();
     assert!(!server::db::validate_session(&pool, &t2).await.unwrap());
 
+    // update_password 对不存在用户必须报错（不再静默 no-op）
+    assert!(
+        server::db::update_password(&pool, "nobody", "x-password")
+            .await
+            .is_err(),
+        "update_password on missing user must error"
+    );
+
     // 改密码后旧密码失效、新密码生效
     server::db::update_password(&pool, "admin", "new-password")
         .await
@@ -2034,4 +2042,81 @@ async fn preview_filters_by_kind() {
     // 非法 kind → 400
     let (s, _) = http(&app, "GET", "/admin/preview?kind=bogus", None, Some(&admin)).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn setup_is_atomic_against_duplicate_admin() {
+    // 回归：并发/重复 setup 不产生第二个管理员（INSERT...SELECT WHERE NOT EXISTS 原子性）。
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-setup-atomic", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+
+    let (s, _) = http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(valid_setup("admin")),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    // 已存在时再 setup（不同用户名）→ 409（原子 INSERT 的 affected=0 分支）
+    let (s, _) = http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(valid_setup("admin2")),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    // 确认只有一个用户
+    let pool2 = test_pool(&tmp).await; // 复用同一 db 文件重新连接验证
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool2)
+        .await
+        .unwrap();
+    assert_eq!(n, 1, "must never have two admins");
+}
+
+#[tokio::test]
+async fn concurrent_setup_never_creates_two_admins() {
+    // 两个 setup 并发（不同用户名）：原子 INSERT 保证只有一个成功
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup-conc", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool.clone(), cfg).await;
+
+    let app1 = app.clone();
+    let app2 = app.clone();
+    let (r1, r2) = tokio::join!(
+        http(
+            &app1,
+            "POST",
+            "/admin/setup",
+            Some(valid_setup("admin-a")),
+            None
+        ),
+        http(
+            &app2,
+            "POST",
+            "/admin/setup",
+            Some(valid_setup("admin-b")),
+            None
+        ),
+    );
+    let ok_count = [r1.0, r2.0]
+        .iter()
+        .filter(|s| **s == StatusCode::OK)
+        .count();
+    assert_eq!(ok_count, 1, "exactly one setup must succeed: {r1:?} {r2:?}");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
 }

@@ -1,7 +1,7 @@
 // crates/server/src/routes/combineds.rs
 use crate::auth::require_admin;
 use crate::error::ApiError;
-use crate::routes::valid_combined_name;
+use crate::routes::{is_unique_violation, valid_combined_name};
 use crate::state::AppState;
 use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
@@ -41,13 +41,6 @@ pub fn router() -> Router<AppState> {
             "/admin/combineds/{id}",
             put(update_combined).delete(delete_combined),
         )
-}
-
-/// SQLite UNIQUE 约束冲突（错误码 2067 / 消息含 UNIQUE constraint failed）
-fn is_unique_violation(e: &sqlx::Error) -> bool {
-    e.as_database_error()
-        .map(|d| d.message().contains("UNIQUE"))
-        .unwrap_or(false)
 }
 
 async fn member_ids(state: &AppState, combined_id: i64) -> Result<Vec<i64>, ApiError> {

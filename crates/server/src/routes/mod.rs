@@ -10,6 +10,13 @@ use crate::state::AppState;
 use axum::Router;
 use axum::routing::get;
 
+/// SQLite UNIQUE 约束冲突（错误码 2067 / 消息含 UNIQUE constraint failed）
+pub(crate) fn is_unique_violation(e: &sqlx::Error) -> bool {
+    e.as_database_error()
+        .map(|d| d.message().contains("UNIQUE"))
+        .unwrap_or(false)
+}
+
 /// 组合订阅名：路径段安全（无 URL 编码），限定 [A-Za-z0-9-_]
 pub(crate) fn valid_combined_name(s: &str) -> bool {
     !s.is_empty()

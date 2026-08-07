@@ -1,6 +1,7 @@
 // crates/server/src/routes/auth.rs
 use crate::auth::extract_bearer;
 use crate::error::ApiError;
+use crate::routes::is_unique_violation;
 use crate::state::AppState;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
@@ -58,9 +59,6 @@ async fn setup(
     body: Result<Json<SetupRequest>, JsonRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let Json(b) = body.map_err(ApiError::from)?;
-    if !crate::db::users_empty(&state.pool).await? {
-        return Err(ApiError::conflict("admin user already exists"));
-    }
     let username = b.username.trim().to_string();
     if !valid_username(&username) {
         return Err(ApiError::bad_request(
@@ -75,8 +73,23 @@ async fn setup(
     if b.password != b.password_confirm {
         return Err(ApiError::bad_request("passwords do not match"));
     }
-    crate::db::create_user(&state.pool, &username, &b.password).await?;
-    Ok(Json(serde_json::json!({ "username": username })))
+    // 原子创建（INSERT...SELECT WHERE NOT EXISTS 单语句）：并发 setup 不可能产生双管理员
+    let created = crate::db::create_user_if_empty(&state.pool, &username, &b.password).await;
+    match created {
+        Ok(true) => Ok(Json(serde_json::json!({ "username": username }))),
+        Ok(false) => Err(ApiError::conflict("admin user already exists")),
+        // UNIQUE 兜底：极端竞态（同用户名并发）下 INSERT 冲突也转 409（非 500）
+        Err(e) => {
+            if e.downcast_ref::<sqlx::Error>()
+                .map(is_unique_violation)
+                .unwrap_or(false)
+            {
+                Err(ApiError::conflict("admin user already exists"))
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
 async fn login(

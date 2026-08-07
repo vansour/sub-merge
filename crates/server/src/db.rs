@@ -152,25 +152,61 @@ pub async fn create_user(pool: &SqlitePool, username: &str, password: &str) -> R
     Ok(())
 }
 
+/// 原子创建管理员：单语句 INSERT...WHERE NOT EXISTS 防并发双管理员。
+/// 返回 Ok(true)=创建成功；Ok(false)=已存在（调用方转 409）。
+pub async fn create_user_if_empty(
+    pool: &SqlitePool,
+    username: &str,
+    password: &str,
+) -> Result<bool> {
+    let hash = hash_password(password)?;
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let res = sqlx::query(
+        "INSERT INTO users (username, password_hash, created_at) \
+         SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)",
+    )
+    .bind(username)
+    .bind(&hash)
+    .bind(created_at)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+// 模块级常量：预计算的 argon2id dummy hash（固定盐），用户不存在时验证它，
+// 使不存在与密码错误的耗时一致（时序型用户名枚举防护）。
+// 由本 crate 的 hash_password("dummy-password") 生成（Argon2::default 参数），
+// 保证 PasswordHash::new 可解析、verify 跑完整 argon2。
+const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$ZzWOQI/mqH81rndoNXBf7A$kBTvZXE45uPlI/LkuR50OQhpbmi4h0IvXnSSwhogAos";
+
 pub async fn verify_user(pool: &SqlitePool, username: &str, password: &str) -> Result<bool> {
     let row = sqlx::query("SELECT password_hash FROM users WHERE username = ?")
         .bind(username)
         .fetch_optional(pool)
         .await?;
-    let Some(row) = row else {
-        return Ok(false);
+    let stored = match row {
+        Some(r) => r.get::<String, _>(0),
+        // 恒定时间：用户不存在也跑一次 argon2 verify（防时序枚举）。
+        // 注意不能直接返回 DUMMY_HASH 的 verify 结果——该 hash 由源码中固定的
+        // 密码生成，直接返回会让"密码=固定密码"的请求对不存在用户通过登录。
+        None => {
+            let _verified = verify_password_hash(password, DUMMY_HASH);
+            return Ok(false);
+        }
     };
-    let stored: String = row.get(0);
     Ok(verify_password_hash(password, &stored))
 }
 
 pub async fn update_password(pool: &SqlitePool, username: &str, new_password: &str) -> Result<()> {
     let hash = hash_password(new_password)?;
-    sqlx::query("UPDATE users SET password_hash = ? WHERE username = ?")
+    let res = sqlx::query("UPDATE users SET password_hash = ? WHERE username = ?")
         .bind(hash)
         .bind(username)
         .execute(pool)
         .await?;
+    if res.rows_affected() == 0 {
+        return Err(anyhow::anyhow!("no user with username {username}"));
+    }
     Ok(())
 }
 
