@@ -16,6 +16,7 @@ pub struct SubscribeQuery {
 pub async fn subscribe_handler(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    headers: axum::http::HeaderMap,
     q: Result<Query<SubscribeQuery>, QueryRejection>,
 ) -> Result<Response, ApiError> {
     let Query(q) = q.map_err(ApiError::from)?;
@@ -44,6 +45,37 @@ pub async fn subscribe_handler(
         }
         None => OutputFormat::Clash,
     };
+
+    // clash 分支：订阅组模式（不再解析节点输出）——模板 + proxy-providers 引用本服务的
+    // v2ray 聚合订阅链接。组合名作为 provider key。
+    if format == OutputFormat::Clash {
+        let scheme = headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| s == &"https")
+            .map(|_| "https")
+            .unwrap_or("http");
+        let host = headers
+            .get(axum::http::header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| ApiError::bad_request("missing Host header"))?;
+        let provider_url = format!("{scheme}://{host}/subscribe/{name}?format=v2ray");
+        let template =
+            crate::db::get_setting(&state.pool, crate::routes::clash_config::TEMPLATE_KEY)
+                .await?
+                .unwrap_or_else(crate::routes::clash_config::default_template);
+        let body = proxy_core::formats::clash::serialize_clash_subscription(
+            &template,
+            &name,
+            &provider_url,
+        )
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+        return Ok(Response::builder()
+            .header("content-type", "application/x-yaml")
+            .header("profile-update-interval", "24")
+            .body(axum::body::Body::from(body))
+            .unwrap());
+    }
 
     let (nodes, source_errors) = service::fetch_and_merge(&state, Some(&member_ids)).await;
 
