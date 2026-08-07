@@ -1849,3 +1849,72 @@ async fn combined_subscription_all_members_failed_returns_502() {
         "error detail must name the failed source, got: {msg}"
     );
 }
+
+#[tokio::test]
+async fn user_and_session_db_functions() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-auth-db", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+
+    // 初始无用户
+    assert!(server::db::users_empty(&pool).await.unwrap());
+
+    // 创建 + 验证
+    server::db::create_user(&pool, "admin", "correct-password")
+        .await
+        .unwrap();
+    assert!(!server::db::users_empty(&pool).await.unwrap());
+    assert!(
+        server::db::verify_user(&pool, "admin", "correct-password")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !server::db::verify_user(&pool, "admin", "wrong-password")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !server::db::verify_user(&pool, "nobody", "correct-password")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        server::db::get_username(&pool).await.unwrap().as_deref(),
+        Some("admin")
+    );
+
+    // 重名 → Err
+    assert!(server::db::create_user(&pool, "admin", "x").await.is_err());
+
+    // 会话生命周期
+    let t1 = server::db::create_session(&pool).await.unwrap();
+    let t2 = server::db::create_session(&pool).await.unwrap();
+    assert_ne!(t1, t2);
+    assert_eq!(t1.len(), 64); // 32 bytes hex
+    assert!(server::db::validate_session(&pool, &t1).await.unwrap());
+    assert!(
+        !server::db::validate_session(&pool, "f".repeat(64).as_str())
+            .await
+            .unwrap()
+    );
+    server::db::delete_session(&pool, &t1).await.unwrap();
+    assert!(!server::db::validate_session(&pool, &t1).await.unwrap());
+    server::db::delete_all_sessions(&pool).await.unwrap();
+    assert!(!server::db::validate_session(&pool, &t2).await.unwrap());
+
+    // 改密码后旧密码失效、新密码生效
+    server::db::update_password(&pool, "admin", "new-password")
+        .await
+        .unwrap();
+    assert!(
+        !server::db::verify_user(&pool, "admin", "correct-password")
+            .await
+            .unwrap()
+    );
+    assert!(
+        server::db::verify_user(&pool, "admin", "new-password")
+            .await
+            .unwrap()
+    );
+}
