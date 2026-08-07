@@ -180,6 +180,74 @@ def scenario_preview_filter(ws):
     time.sleep(0.8)
     assert_true(ev(ws, "document.querySelectorAll('.table-wrap tbody tr').length === 1"), "过滤视图只显示该组合成员")
 
+def find_server():
+    """定位 :18080 的 server 进程(Linux /proc 扫描,按 PORT=18080 + test-token 过滤,避免误伤其他 server)。"""
+    import os
+    hits = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/environ" % pid, "rb") as f:
+                env = f.read().decode("utf-8", "replace").split("\0")
+        except OSError:
+            continue
+        if "PORT=18080" not in env or "SUB_MERGE_ADMIN_TOKEN=test-token" not in env:
+            continue
+        try:
+            exe = os.readlink("/proc/%s/exe" % pid)
+            cwd = os.readlink("/proc/%s/cwd" % pid)
+        except OSError:
+            continue
+        hits.append((pid, exe, cwd, env))
+    return hits
+
+def scenario_refresh_failure(ws):
+    """刷新失败:停 server → 点刷新 → 旧数据行仍在 + 错误文本出现 → 重启恢复(错误清除)。"""
+    import os, signal, subprocess
+    hits = find_server()
+    assert_true(len(hits) > 0, "找到 :18080 server 进程")
+    pid, exe, cwd, env = hits[0]
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
+    assert_true(wait_until(ws, "!!document.querySelector('.stat-value')"), "概览统计已渲染")
+    stats0 = ev(ws, "Array.from(document.querySelectorAll('.stat-value')).map(e=>e.textContent).join(',')")
+    rows0 = ev(ws, "document.querySelectorAll('.summary-row').length")
+    assert_true(isinstance(rows0, int) and rows0 > 0, "订阅源摘要行已渲染(%d)" % (rows0 if isinstance(rows0, int) else -1))
+    # 停 server
+    for p, _, _, _ in hits:
+        try:
+            os.kill(int(p), signal.SIGTERM)
+        except OSError:
+            pass
+    for _ in range(20):
+        if not os.path.exists("/proc/" + pid):
+            break
+        time.sleep(0.5)
+    assert_true(not os.path.exists("/proc/" + pid), "server 已停止")
+    # 点刷新:旧数据应保留 + 错误文本出现(修复前 Error 清空 data,统计归零/摘要消失)
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
+    assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "刷新失败后错误文本出现")
+    assert_true(ev(ws, "Array.from(document.querySelectorAll('.stat-value')).map(e=>e.textContent).join(',')") == stats0, "刷新失败后统计值不变(旧数据保留)")
+    assert_true(ev(ws, "document.querySelectorAll('.summary-row').length") == rows0, "刷新失败后摘要行仍在(旧数据保留)")
+    # 重启 server(按原进程的 exe/cwd/env 重建,detached 脱离本会话)
+    env = dict(kv.split("=", 1) for kv in env if "=" in kv)
+    log = open("/tmp/submerge-server-restart.log", "ab")
+    subprocess.Popen([exe], cwd=cwd, env=env, stdout=log, stderr=log, start_new_session=True)
+    alive = False
+    for _ in range(40):
+        try:
+            with urllib.request.urlopen(URL + "/healthz", timeout=1) as r:
+                if r.status == 200:
+                    alive = True
+                    break
+        except Exception:
+            time.sleep(0.5)
+    assert_true(alive, "server 重启成功(/healthz 200)")
+    # 恢复:再次刷新,错误消失
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
+    assert_true(wait_until(ws, "!document.querySelector('.error-text')", timeout=10), "重启后刷新恢复,错误消失")
+
 def scenario_combineds(ws):
     """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
     cleanup_combined("c-test")
@@ -200,7 +268,8 @@ def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
-                 "combineds": scenario_combineds, "preview_filter": scenario_preview_filter}
+                 "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
+                 "refresh_failure": scenario_refresh_failure}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
