@@ -86,6 +86,18 @@ def seed_sources(ws, n):
                         headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"})
         u.urlopen(req, timeout=5)
 
+def cleanup_combined(name):
+    """经 API 删除同名组合(幂等)。combined_subs.name 有 UNIQUE 约束,
+    场景重跑前须先清掉同名旧数据,否则保存会 400 失败。"""
+    import urllib.request as u
+    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer test-token"})
+    with u.urlopen(req, timeout=5) as r:
+        items = json.loads(r.read())
+    for it in items:
+        if it.get("name") == name:
+            u.urlopen(u.Request(URL + "/admin/combineds/%d" % it["id"], method="DELETE",
+                                headers={"Authorization": "Bearer test-token"}), timeout=5)
+
 # 在新文档创建时注入(早于 app 脚本):MutationObserver 记录加载瞬态是否出现过。
 # 本机 /admin/preview 对 single 源即时返回(不实际拉取),loading 窗口仅 ~100ms,
 # 固定 sleep 后查询会错过,故用观察者标记替代瞬时查询,断言语义不变。
@@ -137,10 +149,27 @@ def scenario_sources_crud(ws):
     time.sleep(0.3)
     assert_true(ev(ws, "document.querySelector('.stat-value')?.textContent === '%d'" % (n0 + 1)), "概览源总数 +1(缓存回写)")
 
+def scenario_combineds(ws):
+    """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
+    cleanup_combined("c-test")
+    seed_sources(ws, 1)
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
+    click_nav(ws, "组合订阅")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('组合订阅')).classList.contains('active')"), "组合订阅就绪")
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('新建组合')).click()")
+    time.sleep(0.5)
+    ev(ws, "(()=>{const el=document.querySelector('.modal input');const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;s.call(el,'c-test');el.dispatchEvent(new Event('input',{bubbles:true}));})()")
+    ev(ws, "document.querySelector('.member-row input').click()")
+    time.sleep(0.3)
+    ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('保存')).click()")
+    assert_true(wait_until(ws, "document.body.innerText.includes('c-test')"), "保存后列表出现 c-test")
+
 def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
-    scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud}
+    scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
+                 "combineds": scenario_combineds}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 

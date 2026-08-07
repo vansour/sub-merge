@@ -1,14 +1,13 @@
 // 组合订阅页：组合列表（成员数 + 三种格式链接复制）+ 新建/编辑弹窗（名字 + 成员勾选）。
+// 数据读 DataStore 缓存（MainShell 预载）；保存/删除成功后 refresh 回写。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::copy_text;
 use crate::components::icon::{Spinner, icon};
-use crate::data::{fetch_combineds, fetch_sources};
-use submerge_web_core::dto::SourceDto;
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
+use crate::data::{DataStore, UnitKey};
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use submerge_web_core::dto::CombinedDto;
 use submerge_web_core::fmt::{kind_label, subscribe_path};
 
 // 弹窗表单状态：None = 关闭；Some(edit_id) = 编辑既有组合（name 预填）；新建时 Some(-1)
@@ -22,8 +21,7 @@ struct FormState {
 
 #[component]
 pub fn Combineds(token: Signal<Option<String>>) -> Element {
-    let combineds = use_signal(Vec::<CombinedDto>::new);
-    let sources = use_signal(Vec::<SourceDto>::new);
+    let data = use_context::<DataStore>();
     let mut error = use_signal(String::new);
     let mut form = use_signal(FormState::default);
     let saving = use_signal(|| false);
@@ -33,24 +31,11 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let copied = use_signal(|| None::<(String, String)>);
     let toasts = use_toast();
 
-    // 初次挂载加载组合与源列表
-    use_future(move || {
-        let token = token.read().clone();
-        let mut combineds = combineds;
-        let mut sources = sources;
-        let mut error = error;
-        async move {
-            let t = token.as_deref();
-            match fetch_combineds(t).await {
-                Ok(list) => combineds.set(list),
-                Err(e) => error.set(e),
-            }
-            match fetch_sources(t).await {
-                Ok(list) => sources.set(list),
-                Err(e) => error.set(e),
-            }
-        }
-    });
+    // 数据来自 DataStore 缓存（MainShell 预载）；保存/删除成功后 data.refresh 回写。
+    let combineds_state = data.combineds.read().clone();
+    let combined_list = combineds_state.data.unwrap_or_default();
+    let sources_state = data.sources.read().clone();
+    let source_list = sources_state.data.unwrap_or_default();
 
     // 打开新建弹窗
     let open_create = move |_| {
@@ -62,17 +47,14 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         });
     };
 
-    // 打开编辑弹窗（预填名字与成员）
-    let mut open_edit = move |id: i64| {
-        let c = combineds.read().iter().find(|c| c.id == id).cloned();
-        if let Some(c) = c {
-            form.set(FormState {
-                open: true,
-                edit_id: Some(id),
-                name: c.name,
-                checked: c.source_ids.iter().copied().collect(),
-            });
-        }
+    // 打开编辑弹窗（名字与成员由行渲染处传入——闭包不捕获 owned Vec，跨行内 move 可复制）
+    let mut open_edit = move |id: i64, name: String, source_ids: Vec<i64>| {
+        form.set(FormState {
+            open: true,
+            edit_id: Some(id),
+            name,
+            checked: source_ids.into_iter().collect(),
+        });
     };
 
     // 勾选切换（HashSet 的 contains/remove/insert 均为 O(1)）
@@ -100,7 +82,6 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         })
         .to_string();
         let mut form = form.clone();
-        let mut combineds = combineds.clone();
         let mut error = error.clone();
         let mut saving = saving.clone();
         let toasts = toasts.clone();
@@ -119,29 +100,20 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                 None => request("POST", "/admin/combineds", Some(body), token.as_deref()).await,
             };
             match result {
-                Ok(_) => match fetch_combineds(token.as_deref()).await {
-                    Ok(list) => {
-                        combineds.set(list);
-                        form.set(FormState::default());
-                        error.set(String::new());
-                        push_toast(toasts, ToastKind::Success, "组合订阅已保存");
-                    }
-                    Err(e) => error.set(e),
-                },
+                Ok(_) => {
+                    data.refresh(UnitKey::Combineds);
+                    form.set(FormState::default());
+                    error.set(String::new());
+                    push_toast(toasts, ToastKind::Success, "组合订阅已保存");
+                }
                 Err(e) => error.set(format!("保存失败: {e}")),
             }
             saving.set(false);
         });
     };
 
-    // 删除确认
-    let mut ask_delete = move |id: i64| {
-        let name = combineds
-            .read()
-            .iter()
-            .find(|c| c.id == id)
-            .map(|c| c.name.clone())
-            .unwrap_or_default();
+    // 删除确认（名字由行渲染处传入，与 sources.rs ask_delete 同模式）
+    let mut ask_delete = move |id: i64, name: String| {
         pending_id.set(Some(id));
         confirm.set(ConfirmState {
             open: true,
@@ -155,8 +127,6 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         confirm.set(ConfirmState::default());
         if let Some(id) = pending_id() {
             let token = token.read().clone();
-            let mut combineds = combineds.clone();
-            let mut error = error.clone();
             let toasts = toasts.clone();
             spawn(async move {
                 match request(
@@ -167,13 +137,10 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                 )
                 .await
                 {
-                    Ok(_) => match fetch_combineds(token.as_deref()).await {
-                        Ok(list) => {
-                            combineds.set(list);
-                            push_toast(toasts, ToastKind::Success, "已删除");
-                        }
-                        Err(e) => error.set(e),
-                    },
+                    Ok(_) => {
+                        data.refresh(UnitKey::Combineds);
+                        push_toast(toasts, ToastKind::Success, "已删除");
+                    }
                     Err(e) => push_toast(toasts, ToastKind::Error, format!("删除失败: {e}")),
                 }
             });
@@ -203,8 +170,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     };
 
     // 弹窗内成员复选框行（预渲染）
-    let member_rows: Vec<Element> = sources
-        .read()
+    let member_rows: Vec<Element> = source_list
         .iter()
         .map(|s| {
             let sid = s.id;
@@ -231,13 +197,13 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         .collect();
 
     // 组合行（预渲染）
-    let rows: Vec<Element> = combineds
-        .read()
+    let rows: Vec<Element> = combined_list
         .iter()
         .map(|c| {
             let id = c.id;
             let name = c.name.clone();
             let count = c.source_ids.len();
+            let source_ids = c.source_ids.clone();
             let base = web_sys::window()
                 .and_then(|w| w.location().origin().ok())
                 .unwrap_or_default();
@@ -260,6 +226,9 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     }
                 })
                 .collect();
+            // 编辑/删除闭包只捕获 Copy 信号，行数据以 owned 参数行内传入（行内 clone 免跨闭包 move）。
+            let edit_name = name.clone();
+            let del_name = name.clone();
             rsx! {
                 div { class: "combined-row",
                     div { class: "combined-info",
@@ -270,8 +239,10 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                         {link_buttons.into_iter()}
                     }
                     div { class: "actions",
-                        button { class: "btn btn-ghost btn-sm", onclick: move |_| open_edit(id), {icon("config", 13)} "编辑" }
-                        button { class: "btn btn-danger btn-sm", onclick: move |_| ask_delete(id), {icon("trash", 13)} "删除" }
+                        // 事件处理器是 FnMut（可多次调用），非 Copy 捕获不能在体内 move 出——
+                        // 行内 clone 后传参，与 ask_delete 同模式。
+                        button { class: "btn btn-ghost btn-sm", onclick: move |_| open_edit(id, edit_name.clone(), source_ids.clone()), {icon("config", 13)} "编辑" }
+                        button { class: "btn btn-danger btn-sm", onclick: move |_| ask_delete(id, del_name.clone()), {icon("trash", 13)} "删除" }
                     }
                 }
             }
@@ -280,13 +251,19 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
 
     // 弹窗内成员勾选态由 member_rows 预渲染快照持有，这里只需 name 快照（受控回显）。
     let form_name = form.read().name.clone();
+    // 表单错误优先展示；无表单错误时展示缓存加载错误。
+    let page_error = if error.read().is_empty() {
+        combineds_state.error.clone()
+    } else {
+        error.read().clone()
+    };
     rsx! {
         div { class: "page-head",
             h1 { class: "page-title", "组合订阅" }
             button { class: "btn btn-primary", onclick: open_create, {icon("plus", 14)} "新建组合" }
         }
-        if !error.read().is_empty() {
-            p { class: "error-text", "{error}" }
+        if !page_error.is_empty() {
+            p { class: "error-text", "{page_error}" }
         }
         div { class: "card",
             if rows.is_empty() {
