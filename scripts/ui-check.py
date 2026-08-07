@@ -140,6 +140,46 @@ def scenario_nav_preload(ws):
     click_nav(ws, "概览")
     assert_true(nav_active(ws, "概览"), "概览回访秒开")
     assert_true(not nav_loading(ws, "概览"), "概览回访无转圈")
+    # 慢路径(点按切换):注入 4s 网络延迟 → 点「配置」(首个请求,无缓存) →
+    # 加载窗口内旧页保持可见 + 菜单项转圈 + 未提前切换 → 就绪后切换完成。
+    cmd(ws, "Network.enable")
+    cmd(ws, "Network.emulateNetworkConditions",
+        {"offline": False, "latency": 4000, "downloadThroughput": -1, "uploadThroughput": -1})
+    click_nav(ws, "配置")
+    time.sleep(1.0)
+    assert_true(ev(ws, "document.body.innerText.includes('订阅源总数')"), "慢加载期间旧页(概览)保持可见")
+    assert_true(nav_loading(ws, "配置"), "慢加载期间目标菜单项转圈")
+    assert_true(not nav_active(ws, "配置"), "慢加载期间未提前切换")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('配置')).classList.contains('active')", timeout=15), "就绪后切换完成")
+    cmd(ws, "Network.emulateNetworkConditions",
+        {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1})
+
+def scenario_first_load_failure(ws):
+    """首次加载失败(preview 单元):Error 也提交切换 → 页内错误 + 刷新按钮可用 → 解除阻塞刷新恢复。
+
+    用 CDP 请求拦截让 /admin/preview 首次请求即失败。种源不可行:单条节点解析失败的
+    URI / 指向死端口的 remote 源,服务端只返回 200 + 源错误列表(单元仍 Ready),
+    不会进入 CacheStatus::Error —— 拦截请求才能真实覆盖 Error 提交切换路径。"""
+    cmd(ws, "Network.enable")
+    cmd(ws, "Network.setBlockedURLs", {"urls": ["*admin/preview*"]})
+    cmd(ws, "Page.enable"); cmd(ws, "Runtime.enable")
+    time.sleep(2)
+    for _ in range(20):
+        if ev(ws, "document.readyState") == "complete":
+            break
+        time.sleep(0.5)
+    ev(ws, "localStorage.setItem('submerge_admin_token','test-token')")
+    cmd(ws, "Page.reload")
+    time.sleep(2.5)
+    # 初始 tab=0(概览)需 sources+preview 两单元:sources 正常,preview 被拦截失败。
+    # all_finished 对 Error 同样放行 → 必须仍提交切换。
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')", timeout=15), "首次加载失败仍提交切换(概览激活)")
+    assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "页内出现错误文本(preview 单元失败)")
+    assert_true(ev(ws, "!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')) && !Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).disabled"), "刷新按钮可用")
+    # 解除拦截,点刷新 → preview 单元恢复
+    cmd(ws, "Network.setBlockedURLs", {"urls": []})
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
+    assert_true(wait_until(ws, "!document.querySelector('.error-text') && !!document.querySelector('.stat-value')", timeout=15), "解除后刷新恢复(错误消失、统计渲染)")
 
 def scenario_sources_crud(ws):
     """订阅源页添加源 → 切概览 → 统计同步(缓存回写)。"""
@@ -211,51 +251,78 @@ def find_server():
             cwd = os.readlink("/proc/%s/cwd" % pid)
         except OSError:
             continue
+        # 运行期间二进制被重新构建替换时,/proc/PID/exe 会带 " (deleted)" 后缀,
+        # 直接重启会 FileNotFoundError——剥掉后缀用当前路径上的新二进制重启。
+        if exe.endswith(" (deleted)"):
+            exe = exe[: -len(" (deleted)")]
         hits.append((pid, exe, cwd, env))
     return hits
 
+def wait_healthz(timeout=20):
+    """等待 :18080 /healthz 返回 200。"""
+    for _ in range(int(timeout / 0.5)):
+        try:
+            with urllib.request.urlopen(URL + "/healthz", timeout=1) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+def restart_server(pid, exe, cwd, envmap, logpath):
+    """确保旧进程退出(等退出,超时 SIGKILL)后按原 exe/cwd/env 重启 server。
+
+    pid 已不存在时直接启动(幂等)。调用方随后用 wait_healthz 断言存活。"""
+    import os, signal, subprocess
+    if os.path.exists("/proc/" + pid):
+        for _ in range(20):
+            if not os.path.exists("/proc/" + pid):
+                break
+            time.sleep(0.5)
+    if os.path.exists("/proc/" + pid):
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+        except OSError:
+            pass
+        time.sleep(0.5)
+    log = open(logpath, "ab")
+    subprocess.Popen([exe], cwd=cwd, env=envmap, stdout=log, stderr=log, start_new_session=True)
+
 def scenario_refresh_failure(ws):
     """刷新失败:停 server → 点刷新 → 旧数据行仍在 + 错误文本出现 → 重启恢复(错误清除)。"""
-    import os, signal, subprocess
+    import os, signal
     hits = find_server()
     assert_true(len(hits) > 0, "找到 :18080 server 进程")
     pid, exe, cwd, env = hits[0]
+    envmap = dict(kv.split("=", 1) for kv in env if "=" in kv)
     login(ws)
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
     assert_true(wait_until(ws, "!!document.querySelector('.stat-value')"), "概览统计已渲染")
     stats0 = ev(ws, "Array.from(document.querySelectorAll('.stat-value')).map(e=>e.textContent).join(',')")
     rows0 = ev(ws, "document.querySelectorAll('.summary-row').length")
     assert_true(isinstance(rows0, int) and rows0 > 0, "订阅源摘要行已渲染(%d)" % (rows0 if isinstance(rows0, int) else -1))
-    # 停 server
-    for p, _, _, _ in hits:
-        try:
-            os.kill(int(p), signal.SIGTERM)
-        except OSError:
-            pass
-    for _ in range(20):
-        if not os.path.exists("/proc/" + pid):
-            break
-        time.sleep(0.5)
-    assert_true(not os.path.exists("/proc/" + pid), "server 已停止")
-    # 点刷新:旧数据应保留 + 错误文本出现(修复前 Error 清空 data,统计归零/摘要消失)
-    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
-    assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "刷新失败后错误文本出现")
-    assert_true(ev(ws, "Array.from(document.querySelectorAll('.stat-value')).map(e=>e.textContent).join(',')") == stats0, "刷新失败后统计值不变(旧数据保留)")
-    assert_true(ev(ws, "document.querySelectorAll('.summary-row').length") == rows0, "刷新失败后摘要行仍在(旧数据保留)")
-    # 重启 server(按原进程的 exe/cwd/env 重建,detached 脱离本会话)
-    env = dict(kv.split("=", 1) for kv in env if "=" in kv)
-    log = open("/tmp/submerge-server-restart.log", "ab")
-    subprocess.Popen([exe], cwd=cwd, env=env, stdout=log, stderr=log, start_new_session=True)
-    alive = False
-    for _ in range(40):
-        try:
-            with urllib.request.urlopen(URL + "/healthz", timeout=1) as r:
-                if r.status == 200:
-                    alive = True
-                    break
-        except Exception:
+    try:
+        # 停 server
+        for p, _, _, _ in hits:
+            try:
+                os.kill(int(p), signal.SIGTERM)
+            except OSError:
+                pass
+        for _ in range(20):
+            if not os.path.exists("/proc/" + pid):
+                break
             time.sleep(0.5)
-    assert_true(alive, "server 重启成功(/healthz 200)")
+        assert_true(not os.path.exists("/proc/" + pid), "server 已停止")
+        # 点刷新:旧数据应保留 + 错误文本出现(修复前 Error 清空 data,统计归零/摘要消失)
+        ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
+        assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "刷新失败后错误文本出现")
+        assert_true(ev(ws, "Array.from(document.querySelectorAll('.stat-value')).map(e=>e.textContent).join(',')") == stats0, "刷新失败后统计值不变(旧数据保留)")
+        assert_true(ev(ws, "document.querySelectorAll('.summary-row').length") == rows0, "刷新失败后摘要行仍在(旧数据保留)")
+    finally:
+        # 恢复:断言失败也不留死 server(死 server 会让后续场景全部 401/挂起)
+        restart_server(pid, exe, cwd, envmap, "/tmp/submerge-server-restart.log")
+    assert_true(wait_healthz(), "server 重启成功(/healthz 200)")
     # 恢复:再次刷新,错误消失
     ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
     assert_true(wait_until(ws, "!document.querySelector('.error-text')", timeout=10), "重启后刷新恢复,错误消失")
@@ -265,7 +332,6 @@ def restore_admin_token():
 
     轮换 API 只生成随机新 token（DB 落库 + 内存态更新），无法回写指定值；
     场景末尾直写 DB 后重启（ensure_tokens 启动时重读 DB），后续场景才可继续用 test-token。"""
-    import os, signal, subprocess
     import sqlite3
     hits = find_server()
     assert_true(len(hits) > 0, "找到 :18080 server 进程")
@@ -279,23 +345,15 @@ def restore_admin_token():
     assert conn.total_changes > before, "admin_token 更新影响 0 行(settings 键缺失?)"
     conn.close()
     # 重启使内存态生效（admin_token 在 Arc<RwLock>，只有启动时会从 DB 重读）
-    os.kill(int(pid), signal.SIGTERM)
-    for _ in range(20):
-        if not os.path.exists("/proc/" + pid):
-            break
-        time.sleep(0.5)
-    log = open("/tmp/submerge-server-restore.log", "ab")
-    subprocess.Popen([exe], cwd=cwd, env=envmap, stdout=log, stderr=log, start_new_session=True)
-    alive = False
-    for _ in range(40):
-        try:
-            with urllib.request.urlopen(URL + "/healthz", timeout=1) as r:
-                if r.status == 200:
-                    alive = True
-                    break
-        except Exception:
-            time.sleep(0.5)
-    assert_true(alive, "server 重启成功(/healthz 200)，admin token 已恢复 test-token")
+    restart_server(pid, exe, cwd, envmap, "/tmp/submerge-server-restore.log")
+    assert_true(wait_healthz(), "server 重启成功(/healthz 200)，admin token 已恢复 test-token")
+
+def scenario_restore_token(ws):
+    """恢复命令:DB 直写 admin_token=test-token + 重启 server(/healthz 断言)。
+
+    用法:python3 scripts/ui-check.py restore_token —— 轮换/场景中断后的兜底恢复,
+    一条命令把 :18080 server 恢复为 test-token 可继续跑后续场景。"""
+    restore_admin_token()
 
 def scenario_config_rotate(ws):
     """配置页:token 显示来自缓存;轮换后回写缓存 + 会话同步。"""
@@ -312,18 +370,21 @@ def scenario_config_rotate(ws):
     ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('轮换')).click()")
     time.sleep(0.5)
     ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('轮换')).click()")
-    assert_true(wait_until(ws, "document.querySelector('.token-value')?.textContent !== '%s'" % old), "轮换后 token 显示已更新(缓存回写)")
-    # 服务端已轮换:旧 token 立即失效(API 直查 401)
-    import urllib.request as u
-    rejected = False
     try:
-        req = u.Request(URL + "/admin/config", headers={"Authorization": "Bearer " + old})
-        u.urlopen(req, timeout=5)
-    except Exception as e:
-        rejected = getattr(e, "code", None) == 401
-    assert_true(rejected, "旧 token 已失效(API 401)")
-    # 恢复 test-token,使后续场景不受轮换影响
-    restore_admin_token()
+        assert_true(wait_until(ws, "document.querySelector('.token-value')?.textContent !== '%s'" % old), "轮换后 token 显示已更新(缓存回写)")
+        # 服务端已轮换:旧 token 立即失效(API 直查 401)
+        import urllib.request as u
+        rejected = False
+        try:
+            req = u.Request(URL + "/admin/config", headers={"Authorization": "Bearer " + old})
+            u.urlopen(req, timeout=5)
+        except Exception as e:
+            rejected = getattr(e, "code", None) == 401
+        assert_true(rejected, "旧 token 已失效(API 401)")
+    finally:
+        # 恢复 test-token,使后续场景不受轮换影响。
+        # 置于 finally:轮换后任一步断言失败也执行,不留随机 token 毒害后续场景。
+        restore_admin_token()
 
 def scenario_combineds(ws):
     """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
@@ -347,7 +408,8 @@ def main():
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
                  "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
                  "refresh_failure": scenario_refresh_failure,
-                 "config_rotate": scenario_config_rotate}
+                 "config_rotate": scenario_config_rotate,
+                 "first_load_failure": scenario_first_load_failure}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
