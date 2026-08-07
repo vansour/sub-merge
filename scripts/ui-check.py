@@ -269,8 +269,9 @@ def scenario_preview_filter(ws):
     # 预览下拉出现 c-test 选项 → 切换 → 节点表渲染
     assert_true(wait_until(ws, "!!Array.from(document.querySelectorAll('.preview-filter option')).find(o=>o.textContent==='c-test')"), "预览下拉出现 c-test")
     ev(ws, "(()=>{const sel=document.querySelector('.preview-filter');const t=Array.from(sel.options).find(o=>o.textContent==='c-test');sel.value=t.value;sel.dispatchEvent(new Event('change',{bubbles:true}));})()")
-    time.sleep(0.8)
-    assert_true(wait_until(ws, "!!document.querySelector('.table-wrap tbody tr')"), "组合预览节点表渲染")
+    # c-test 恒 1 成员 1 节点 → 切换后表格行数确定性 === 1。重拉期间旧 data 保留
+    # （行数可能是旧值），wait_until 轮询直到重拉完成行数收敛为 1。
+    assert_true(wait_until(ws, "document.querySelectorAll('.table-wrap tbody tr').length === 1", timeout=10), "过滤视图只显示该组合成员")
 
 def find_server():
     """定位 :18080 的 server 进程(Linux /proc 扫描,按 PORT=18080 过滤,避免误伤其他 server)。

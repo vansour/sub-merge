@@ -42,7 +42,7 @@ cd crates/server/web && dx build --web --release --debug-symbols false   # 前�
 
 - rsx 的 if/else 分支内**不能嵌套 `rsx!` 宏调用**，须直接写元素形式：`if cond { Spinner { size: 14 } } else { "文案" }`；`match` 分支嵌套 `rsx!` 实测可编译（main.rs 的 App/MainShell 在用），但属文档禁区——重构为 if/else 会直接破坏构建，新增分支一律写元素形式
 - `Element` 是 `Result<VNode, RenderError>`，组件空渲染用 `VNode::empty()`（不是 `return None`）
-- `use_effect` 无依赖数组（每次渲染都跑），需要一次性逻辑时用信号做守卫
+- `use_effect` 无依赖数组，但只在挂载 + effect 内读到的信号变化时重跑（组件重渲染不触发）；非响应式 prop 变化需 `use_effect(use_reactive((&key,), ...))` 桥接（0.8.0-alpha.1 实测，见 preview_section.rs 的 key 守卫模式）；一次性逻辑用信号做守卫
 - `EventHandler<T> = Callback<T>`；跨渲染稳定的回调用 `use_callback` 创建，不要直接在 render 体 `EventHandler::new`
 - `Signal` 可直接调用取值（`signal()`）；`Signal::set/write` 使闭包变 FnMut，绑定处可能需要 `let mut`
 - svg 属性在 rsx 里用 snake_case（`view_box`、`stroke_width`）；`web-sys` 的 `setTimeout` 接受 `i32`（需 `as i32`）
