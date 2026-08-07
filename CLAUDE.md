@@ -16,13 +16,13 @@ sub-merge：订阅链接聚合与转换工具。聚合多个订阅源，实时�
 ## 常用命令
 
 ```bash
-make build-web     # 前端 WASM：cd crates/server/web && dx build --web --release
+make build-web     # 前端 WASM：cd crates/server/web && dx build --web --release --debug-symbols false
 make build-server  # cargo build --release -p server
 make run           # 构建前端并启动服务（默认 :8080）
 make smoke         # 端到端冒烟：构建 → 临时 server → curl 验证 SPA/静态/API
 
-cargo test --workspace                  # 后端与纯逻辑测试（web crate 不在 workspace 内）
-cd crates/server/web && dx build --web --release   # 前端唯一构建方式
+cargo test --workspace                  # 后端与纯逻辑测试（web-core 在 workspace 内；web crate 不在，仅由 dx 构建）
+cd crates/server/web && dx build --web --release --debug-symbols false   # 前端唯一构建方式
 ```
 
 ## 强制要求
@@ -47,6 +47,8 @@ cd crates/server/web && dx build --web --release   # 前端唯一构建方式
 - `Signal` 可直接调用取值（`signal()`）；`Signal::set/write` 使闭包变 FnMut，绑定处可能需要 `let mut`
 - svg 属性在 rsx 里用 snake_case（`view_box`、`stroke_width`）；`web-sys` 的 `setTimeout` 接受 `i32`（需 `as i32`）
 - 前端 UI 无测试 harness，验证 = `dx build` + `make smoke` + 浏览器人工核对
+- 前端**纯逻辑**（web-core）在 workspace 内，由 `cargo test --workspace` 覆盖；测试设计 spec 见 `docs/specs/2026-08-07-web-core-testing-design.md`，实施计划见 `docs/plans/2026-08-07-web-core-testing.md`
+- release 构建必须带 `--debug-symbols false`：dx 0.8.0-alpha.1 的 `debug_symbols` CLI 默认 true，且在 build/web.rs 里**无条件覆盖** dx.toml 的 `[web.wasm_opt] debug` 键（配置键无效，仅 CLI 标志生效）。不带该标志时 dx 给 wasm-opt 传 `--debuginfo`，binaryen 127（dx 固定版本）解析 rustc 1.97 的新 DWARF 报 `compile unit size was incorrect` 并 SIGABRT——dx 会打印 ERROR 但仍继续完成构建（非致命），产物带 DWARF 且更大
 
 ## 环境变量与 token（详见 README.md）
 

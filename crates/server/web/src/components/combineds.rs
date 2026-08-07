@@ -31,11 +31,11 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let sources = use_signal(Vec::<SourceDto>::new);
     let mut error = use_signal(String::new);
     let mut form = use_signal(FormState::default);
-    let mut saving = use_signal(|| false);
+    let saving = use_signal(|| false);
     let mut confirm = use_signal(ConfirmState::default);
     let mut pending_id = use_signal(|| None::<i64>);
     // 复制反馈按 (组合名, 格式) 键控：复制某一格式只翻转该按钮
-    let mut copied = use_signal(|| None::<(String, String)>);
+    let copied = use_signal(|| None::<(String, String)>);
     let toasts = use_toast();
 
     // 初次挂载加载组合与源列表
@@ -108,7 +108,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         let mut combineds = combineds.clone();
         let mut error = error.clone();
         let mut saving = saving.clone();
-        let mut toasts = toasts.clone();
+        let toasts = toasts.clone();
         saving.set(true);
         spawn(async move {
             let result = match f.edit_id {
@@ -162,7 +162,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             let token = token.read().clone();
             let mut combineds = combineds.clone();
             let mut error = error.clone();
-            let mut toasts = toasts.clone();
+            let toasts = toasts.clone();
             spawn(async move {
                 match request(
                     "DELETE",

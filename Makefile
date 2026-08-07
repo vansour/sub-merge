@@ -7,8 +7,10 @@ PATH := $(HOME)/.cargo/bin:$(PATH)
 # 前端 WASM：cd 到 web crate 单独构建。
 # web 是独立 crate（不在 workspace members 内），只能由 dx build 构建，
 # 不能走 cargo build --workspace。
+# --debug-symbols false 必须带：dx 0.8.0-alpha.1 默认开启且无条件覆盖 dx.toml
+# 配置，会导致 wasm-opt --debuginfo 解析新 LLVM DWARF 时 SIGABRT（见 CLAUDE.md 坑清单）。
 build-web:
-	cd crates/server/web && ln -sfn target/dx/submerge-web/release/web/public dist; dx build --web --release
+	cd crates/server/web && ln -sfn target/dx/submerge-web/release/web/public dist; dx build --web --release --debug-symbols false
 
 # 后端二进制（release）。
 build-server:

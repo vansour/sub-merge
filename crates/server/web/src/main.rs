@@ -23,7 +23,7 @@ fn App() -> Element {
     // 启动时校验一次本地存储的 token：有效则进入主界面，仅 401（token 失效）时清除回登录页。
     // 网络故障/5xx 等瞬时错误保留 token——admin token 只在首次启动日志打印一次，
     // 误删会让用户无法从 UI 取回。
-    let mut checking = use_signal(|| true);
+    let checking = use_signal(|| true);
     use_future(move || {
         let mut token = token;
         let mut checking = checking;

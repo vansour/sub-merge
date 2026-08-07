@@ -20,7 +20,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     let mut new_url = use_signal(String::new);
     let mut new_name = use_signal(String::new);
     let mut new_kind = use_signal(|| "remote".to_string());
-    let mut adding = use_signal(|| false);
+    let adding = use_signal(|| false);
     let mut refreshing = use_signal(std::collections::HashSet::<i64>::new);
     let mut confirm = use_signal(ConfirmState::default);
     let mut pending_id = use_signal(|| None::<i64>);
@@ -54,7 +54,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         let mut new_name = new_name.clone();
         let mut error = error.clone();
         let mut adding = adding.clone();
-        let mut toasts = toasts.clone();
+        let toasts = toasts.clone();
         adding.set(true);
         spawn(async move {
             match request("POST", "/admin/sources", Some(body), token.as_deref()).await {
@@ -81,7 +81,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         let body = serde_json::json!({ "enabled": !enabled }).to_string();
         let mut sources = sources.clone();
         let mut error = error.clone();
-        let mut toasts = toasts.clone();
+        let toasts = toasts.clone();
         spawn(async move {
             match request("PUT", &format!("/admin/sources/{id}"), Some(body), token.as_deref()).await {
                 Ok(_) => {
@@ -105,7 +105,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         refreshing.write().insert(id);
         let token = token.read().clone();
         let mut refreshing = refreshing.clone();
-        let mut toasts = toasts.clone();
+        let toasts = toasts.clone();
         spawn(async move {
             match request("POST", &format!("/admin/sources/{id}/refresh"), None, token.as_deref()).await {
                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
@@ -154,7 +154,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             let token = token.read().clone();
             let mut sources = sources.clone();
             let mut error = error.clone();
-            let mut toasts = toasts.clone();
+            let toasts = toasts.clone();
             spawn(async move {
                 match request("DELETE", &format!("/admin/sources/{id}"), None, token.as_deref()).await {
                     Ok(_) => {
@@ -222,7 +222,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         })
         .collect();
 
-    let mut error_for_render = error.clone();
+    let error_for_render = error.clone();
     rsx! {
         div { class: "page-head",
             h1 { class: "page-title", "订阅源" }

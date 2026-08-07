@@ -34,7 +34,7 @@ COPY crates/server/web /app/crates/server/web
 # 排除（本地开发才由 dx 生成）。容器内 dx build 输出到真实目录
 # target/dx/submerge-web/debug/web/public。把它拷贝到规范的 /out/web/dist，
 # 供 runtime 阶段 COPY（不能直接用 symlink 路径）。
-RUN dx build --web --release \
+RUN dx build --web --release --debug-symbols false \
     && mkdir -p /out/web \
     && cp -r target/dx/submerge-web/release/web/public /out/web/dist
 

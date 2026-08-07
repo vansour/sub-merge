@@ -12,8 +12,8 @@ use submerge_web_core::fmt::mask_token;
 #[component]
 pub fn Config(token: Signal<Option<String>>) -> Element {
     let cfg = use_signal(|| None::<ConfigDto>);
-    let mut error = use_signal(String::new);
-    let mut show_admin = use_signal(|| false);
+    let error = use_signal(String::new);
+    let show_admin = use_signal(|| false);
     let mut confirm = use_signal(ConfirmState::default);
     let mut pending_rotate = use_signal(|| false);
     let toasts = use_toast();
@@ -39,7 +39,7 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         let body = serde_json::json!({ "rotate": "admin" }).to_string();
         let mut cfg = cfg.clone();
         let mut error = error.clone();
-        let mut toasts = toasts.clone();
+        let toasts = toasts.clone();
         // Signal 是 Copy：把 token signal 拷进闭包，rotating admin token 后同步会话。
         let mut token = token;
         spawn(async move {
@@ -94,7 +94,7 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         })
         .unwrap_or_default();
 
-    let mut cfg_render = cfg.clone();
+    let cfg_render = cfg.clone();
     let mut show_admin_render = show_admin.clone();
     rsx! {
         div { class: "page-head",

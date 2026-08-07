@@ -3,7 +3,7 @@
 #
 # 验证链路：
 #   0. cargo build -p server（生成可执行二进制）
-#   1. dx build --web 构建前端 → dist/
+#   1. dx build --web --debug-symbols false 构建前端 → dist/（不带标志时 wasm-opt 会 SIGABRT，见 CLAUDE.md 坑清单）
 #   2. server 以 WEB_DIST 指向 dist 启动（临时 DB、随机端口）
 #   3. curl 根路径（health）→ "sub-merge is running"
 #   4. curl 静态资源 index.html / wasm js / wasm binary → 200
@@ -41,10 +41,10 @@ SERVER_BIN="$ROOT/target/debug/server"
 [[ -x "$SERVER_BIN" ]] || fail "server 二进制不存在：$SERVER_BIN"
 
 # ---- 1. 构建前端 ----
-step "1/9 dx build --web --release"
+step "1/9 dx build --web --release --debug-symbols false"
 (
   cd "$ROOT/crates/server/web"
-  dx build --web --release
+  dx build --web --release --debug-symbols false
 ) || fail "dx build --web --release 失败"
 
 WEB_DIST="$ROOT/crates/server/web/dist"
