@@ -40,6 +40,28 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let sources_state = data.sources.read().clone();
     let source_list = sources_state.data.unwrap_or_default();
 
+    // 组合列表变化（删除/改名）后，预览选中值若指向已不存在的组合 → 重置为空（全部源预览）。
+    // 必须在 effect 体内读 data.combineds 信号：use_effect 只在挂载 + 被读信号变化时重跑，
+    // 若仅捕获外部派生的普通 Vec，删除/刷新后不会触发。effect 也读 preview_combined，
+    // set(None) 后值已为 None、if-let 不成立不再 set，故不会自循环。
+    use_effect(move || {
+        let names: Vec<String> = data
+            .combineds
+            .read()
+            .data
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        let sel = preview_combined.read().clone(); // 先取出 owned 值再写，read guard 不跨 set
+        if let Some(sel) = sel {
+            if !names.contains(&sel) {
+                preview_combined.set(None);
+            }
+        }
+    });
+
     // 打开新建弹窗
     let open_create = move |_| {
         form.set(FormState {

@@ -1,6 +1,6 @@
 // crates/server/web/src/components/login.rs
 use crate::api::request;
-use crate::components::icon::{icon, Spinner};
+use crate::components::icon::{Spinner, icon};
 use dioxus::prelude::*;
 
 // localStorage key（会话 token，替代旧的 admin token 直存）
@@ -34,9 +34,16 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
     let mut loading = use_signal(|| false);
 
     // 探测 setup 状态的可复用闭包：挂载时调用一次，探测失败后可由「重试」按钮再次调用。
+    // probing 在途去重（单飞，参照 DataStore in_flight 模式）：快速连点「重试」不会并发多个探测。
+    let mut probing = use_signal(|| false);
     let probe = use_callback(move |_: ()| {
+        if probing() {
+            return; // 单飞：在途探测不重复发起
+        }
+        probing.set(true);
         let mut needs_setup = needs_setup.clone();
         let mut error = error.clone();
+        let mut probing = probing.clone();
         spawn(async move {
             match request("GET", "/admin/setup-status", None, None).await {
                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
@@ -48,6 +55,7 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
                 },
                 Err(e) => error.set(format!("检查初始化状态失败: {e}")),
             }
+            probing.set(false);
         });
     });
     // 挂载时探测一次：use_future 单参数只在挂载时运行一次（不随重渲染重跑），
@@ -103,8 +111,8 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
             match request("POST", "/admin/setup", Some(body), None).await {
                 Ok(_) => {
                     // 创建成功 → 自动登录
-                    let login_body = serde_json::json!({"username": user, "password": pass})
-                        .to_string();
+                    let login_body =
+                        serde_json::json!({"username": user, "password": pass}).to_string();
                     match request("POST", "/admin/login", Some(login_body), None).await {
                         Ok(b) => match serde_json::from_str::<serde_json::Value>(&b) {
                             Ok(v) => match v["token"].as_str() {
@@ -130,7 +138,7 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
             // 否则用户卡在无限转圈页无任何提示、也无法恢复。
             if !error.read().is_empty() {
                 p { class: "error-text", "{error}" }
-                button { class: "btn btn-primary", onclick: move |_| probe.call(()), "重试" }
+                button { class: "btn btn-primary", onclick: move |_| probe.call(()), disabled: *probing.read(), "重试" }
             } else {
                 div { class: "login-logo", Spinner { size: 40 } }
             }

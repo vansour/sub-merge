@@ -1,7 +1,7 @@
 // crates/server/web/src/main.rs
 mod api;
-mod data;
 mod components;
+mod data;
 
 use crate::api::request;
 use crate::data::DataStore;
@@ -82,7 +82,18 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
 
     // 叶子索引：0=本地订阅 1=远程订阅 2=组合订阅 3=配置
     // 分组名："subs"（订阅管理）"single"（单条订阅）
-    let mut open_groups = use_signal(|| std::collections::HashSet::from(["subs", "single"]));
+    // 初始展开状态按窗口宽度：窄屏（≤768px，侧栏收成顶栏）两分组默认收起，宽屏默认展开。
+    // match_media 返回 Result<Option<MediaQueryList>, JsValue>，js 失败按宽屏兜底。
+    let is_narrow = web_sys::window()
+        .and_then(|w| w.match_media("(max-width: 768px)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(false);
+    let default_open: std::collections::HashSet<&'static str> = if is_narrow {
+        std::collections::HashSet::new()
+    } else {
+        std::collections::HashSet::from(["subs", "single"])
+    };
+    let mut open_groups = use_signal(|| default_open);
 
     let mut go = move |i: usize| {
         if *tab.read() == i {
