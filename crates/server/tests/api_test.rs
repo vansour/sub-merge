@@ -764,8 +764,10 @@ async fn rejection_malformed_json_returns_unified_json() {
 }
 
 #[tokio::test]
-async fn subscribe_skips_unserializable_node_instead_of_500() {
-    // 源包含一个可解析但无法序列化的 wireguard 节点（缺 privateKey）+ 一个正常 ss 节点
+async fn subscribe_skips_unsupported_protocol_in_v2ray() {
+    // 源含一个 wireguard 节点 + 一个正常 ss 节点。v2ray 序列化对 wireguard 是
+    // 显式协议排除（serialize_v2ray 的 continue），不是错误容错——本用例只验证
+    // 该协议排除行为；「可解析但序列化失败节点被跳过」的错误容错由 singbox 用例覆盖。
     let mock = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/sub"))
@@ -806,7 +808,6 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
-    // clash 分支已改订阅组模式（不解析节点），节点级跳过逻辑在 v2ray 分支验证
     let resp = app
         .clone()
         .oneshot(
@@ -830,7 +831,77 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     assert!(decoded.contains("#OK"), "good node must survive");
     assert!(
         !decoded.contains("WG"),
-        "unserializable node must be skipped"
+        "wireguard must be excluded from v2ray output"
+    );
+}
+
+#[tokio::test]
+async fn subscribe_singbox_skips_unserializable_node_instead_of_500() {
+    // 错误容错回归：源含一个「可解析但 singbox 序列化失败」的 wireguard 节点
+    // （缺 privateKey → node_to_singbox 返回 Err，filter_map 跳过）+ 一个正常 ss 节点。
+    // 订阅必须 200，坏节点被跳过而非拖垮整个输出。
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#OK\n\
+             wireguard://cHVibGljS2V5MTIz@1.2.3.4:443?publicKey=cHVibGljS2V5MTIz#WG\n",
+        ))
+        .mount(&mock)
+        .await;
+
+    let tmp = fresh_tmp("singbox-wg-skip");
+    let pool = test_pool(&tmp).await;
+    let url = format!("{}/sub", mock.uri());
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+            .bind(&url)
+            .bind("mock")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
+    let src_id = res.last_insert_rowid();
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'merged'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(src_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/subscribe/merged?format=singbox")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "bad node must not 500 the subscription"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains("\"OK\""), "good node must survive: {body}");
+    assert!(
+        !body.contains("WG"),
+        "unserializable node must be skipped: {body}"
     );
 }
 
@@ -1706,7 +1777,9 @@ async fn combined_subscription_empty_members_returns_200() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
+    // clash 分支：不拉源，模板输出 200
     let resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/subscribe/empty-grp?format=clash")
@@ -1719,7 +1792,31 @@ async fn combined_subscription_empty_members_returns_200() {
     assert_eq!(
         resp.status(),
         StatusCode::OK,
-        "empty members must be 200, not 502"
+        "clash empty members must be 200, not 502"
+    );
+
+    // v2ray 分支：零成员拉取 → 空 base64 输出 200（覆盖拉源路径的空成员守卫）
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/subscribe/empty-grp?format=v2ray")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "v2ray empty members must be 200, not 502"
+    );
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(
+        bytes.is_empty(),
+        "v2ray empty members must produce empty body"
     );
 }
 
