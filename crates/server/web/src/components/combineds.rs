@@ -3,18 +3,13 @@ use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::copy_text;
 use crate::components::icon::{Spinner, icon};
-use crate::components::sources::fetch_sources;
+use crate::data::{fetch_combineds, fetch_sources};
 use submerge_web_core::dto::SourceDto;
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use submerge_web_core::dto::CombinedDto;
 use submerge_web_core::fmt::{kind_label, subscribe_path};
-
-pub async fn fetch_combineds(token: Option<&str>) -> Result<Vec<CombinedDto>, String> {
-    let body = request("GET", "/admin/combineds", None, token).await?;
-    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
-}
 
 // 弹窗表单状态：None = 关闭；Some(edit_id) = 编辑既有组合（name 预填）；新建时 Some(-1)
 #[derive(Debug, Clone, Default)]

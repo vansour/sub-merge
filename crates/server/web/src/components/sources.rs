@@ -4,14 +4,10 @@ use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::icon::{icon, Spinner};
 use crate::components::toast::{push_toast, use_toast, ToastKind};
+use crate::data::fetch_sources;
 use dioxus::prelude::*;
 use submerge_web_core::dto::SourceDto;
 use submerge_web_core::fmt::kind_label;
-
-pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
-    let body = request("GET", "/admin/sources", None, token).await?;
-    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
-}
 
 #[component]
 pub fn Sources(token: Signal<Option<String>>) -> Element {

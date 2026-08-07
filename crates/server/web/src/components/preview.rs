@@ -2,7 +2,7 @@
 // 转换预览：节点表（协议彩色徽章）+ 源错误警告卡片。
 // 页头下拉选择「全部源 / 各组合」（请求 /admin/preview?combined=<名称> 过滤）。
 use crate::api::request;
-use crate::components::combineds::fetch_combineds;
+use crate::data::fetch_combineds;
 use submerge_web_core::dto::CombinedDto;
 use crate::components::icon::{icon, Spinner};
 use dioxus::prelude::*;

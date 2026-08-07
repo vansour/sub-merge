@@ -1,5 +1,6 @@
 // crates/server/web/src/main.rs
 mod api;
+mod data;
 mod components;
 
 use crate::api::request;

@@ -5,6 +5,7 @@ use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::login::write_token;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
+use crate::data::fetch_config;
 use dioxus::prelude::*;
 use submerge_web_core::dto::ConfigDto;
 use submerge_web_core::fmt::mask_token;
@@ -24,12 +25,9 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         let mut cfg = cfg.clone();
         let mut error = error.clone();
         async move {
-            match request("GET", "/admin/config", None, token.as_deref()).await {
-                Ok(body) => match serde_json::from_str::<ConfigDto>(&body) {
-                    Ok(c) => cfg.set(Some(c)),
-                    Err(e) => error.set(format!("解析失败: {}", e)),
-                },
-                Err(e) => error.set(e.to_string()),
+            match fetch_config(token.as_deref()).await {
+                Ok(c) => cfg.set(Some(c)),
+                Err(e) => error.set(e),
             }
         }
     });

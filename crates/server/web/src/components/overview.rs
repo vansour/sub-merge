@@ -1,17 +1,11 @@
 // crates/server/web/src/components/overview.rs
 // 概览页：4 张统计卡片（源总数/启用中/节点总数/失败源数）+ 订阅源摘要 + 最近错误。
 // 数据来自现有两个接口（sources + preview），纯客户端聚合。
-use crate::api::request;
 use crate::components::icon::{icon, Spinner};
-use crate::components::sources::fetch_sources;
+use crate::data::{fetch_preview_summary, fetch_sources};
 use submerge_web_core::dto::SourceDto;
 use dioxus::prelude::*;
 use submerge_web_core::dto::PreviewSummary;
-
-async fn fetch_preview(token: Option<&str>) -> Result<PreviewSummary, String> {
-    let body = request("GET", "/admin/preview", None, token).await?;
-    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
-}
 
 #[component]
 pub fn Overview(token: Signal<Option<String>>, on_goto: EventHandler<usize>) -> Element {
@@ -34,7 +28,7 @@ pub fn Overview(token: Signal<Option<String>>, on_goto: EventHandler<usize>) -> 
                 Ok(list) => sources.set(list),
                 Err(e) => error.set(e.to_string()),
             }
-            match fetch_preview(token.as_deref()).await {
+            match fetch_preview_summary(token.as_deref()).await {
                 Ok(s) => stats.set(Some(s)),
                 Err(e) => error.set(e.to_string()),
             }
@@ -55,7 +49,7 @@ pub fn Overview(token: Signal<Option<String>>, on_goto: EventHandler<usize>) -> 
                 Ok(list) => sources.set(list),
                 Err(e) => error.set(e.to_string()),
             }
-            match fetch_preview(token.as_deref()).await {
+            match fetch_preview_summary(token.as_deref()).await {
                 Ok(s) => stats.set(Some(s)),
                 Err(e) => error.set(e.to_string()),
             }
