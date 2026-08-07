@@ -35,7 +35,8 @@ def ev(ws, expr, timeout=6):
     try:
         return cmd(ws, "Runtime.evaluate", {"expression": expr, "returnByValue": True}).get("result", {}).get("value")
     except Exception:
-        return ">>>TIMEOUT<<<"
+        # 超时/断连返回 None(假值):wait_until/assert_true 会自然 FAIL,不得返回真值。
+        return None
 
 def login(ws):
     cmd(ws, "Page.enable"); cmd(ws, "Runtime.enable")
