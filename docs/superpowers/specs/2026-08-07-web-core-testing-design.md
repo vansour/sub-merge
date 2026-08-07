@@ -52,7 +52,7 @@ crates/web-core/
 | `components/combineds.rs` | `next_toast_id() -> u64`（NEXT_ID thread_local 分配逻辑；`push_toast` 与 Signal 逻辑留原地） | fmt.rs |
 | `components/preview.rs` | `PreviewNode`（name/protocol/server/port）、`PreviewResp`（nodes/errors/total）、`proto_class(protocol) -> &'static str` | dto.rs / fmt.rs |
 | `components/overview.rs` | `PreviewSummary`（total/errors） | dto.rs |
-| `components/config.rs` | `ConfigDto`（admin_token）、`mask_token(s) -> String`（•••••••• 掩码逻辑） | dto.rs / fmt.rs |
+| `components/config.rs` | `ConfigDto`（username） | dto.rs |
 | `api.rs` | `ApiError`（status/message + Display + From<String>）；`request()` 留原地改 import | error.rs |
 | `components/toast.rs` | `ToastKind` 枚举 + icon/class 映射（Success→check/success、Error→alert/error、Info→config/info）；`push_toast`/`use_toast`/`schedule_timeout`/`ToastProvider`/`ToastCard` 留原地 | fmt.rs |
 
@@ -82,7 +82,7 @@ crates/web-core/
 - `/admin/sources` → `[{"id":1,"url":"https://example.com/sub","name":"机场A","kind":"remote","enabled":true,"created_at":"2026-08-07 12:00:00"}]`：反序列化成功、字段完整
 - `/admin/combineds` → `[{"id":1,"name":"home","created_at":"2026-08-07 12:00:00","source_ids":[1,2]}]`：反序列化成功、source_ids 顺序与内容
 - `/admin/preview` → `{"nodes":[{"name":"节点1","protocol":"vmess","server":"1.2.3.4","port":443}],"errors":["源A: 超时"],"total":1}`：nodes/errors/total 完整
-- `/admin/config` → `{"admin_token":"abc123"}`：反序列化成功
+- `/admin/config` → `{"username":"admin"}`：反序列化成功（config_dto_parses 实测 fixture）
 - 未知字段忽略：在 fixtures 中混入未知键（如 `"extra":"x"`），断言反序列化不受影响（serde 默认行为，锁定契约宽松性）
 
 ## 集成

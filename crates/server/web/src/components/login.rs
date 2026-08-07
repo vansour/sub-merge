@@ -50,7 +50,9 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
             }
         });
     });
-    // 挂载时探测一次（probe.call 立即 spawn 请求并返回）
+    // 挂载时探测一次：use_future 单参数只在挂载时运行一次（不随重渲染重跑），
+    // 无需额外的 None 守卫；probe.call 立即 spawn 请求并返回，探测失败时
+    // needs_setup 保持 None（加载中），由「重试」按钮再次调用 probe 恢复。
     use_future(move || async move {
         probe.call(());
     });

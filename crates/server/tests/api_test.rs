@@ -10,6 +10,13 @@ use tower::ServiceExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+fn fresh_tmp(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("submerge-test-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir); // 清理 PID 复用残留
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 fn test_config(tmp: &std::path::Path) -> AppConfig {
     AppConfig {
         port: 0,
@@ -82,8 +89,7 @@ async fn setup_admin(app: &axum::Router) -> String {
 
 #[tokio::test]
 async fn unknown_route_returns_404() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-router", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("router");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -102,9 +108,7 @@ async fn unknown_route_returns_404() {
 
 #[tokio::test]
 async fn subscribe_without_token_succeeds() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-sub-notoken", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("sub-notoken");
     let pool = test_pool(&tmp).await;
     // 空成员组合：无源可拉，输出空 clash 配置
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
@@ -129,8 +133,7 @@ async fn subscribe_without_token_succeeds() {
 
 #[tokio::test]
 async fn subscribe_wrong_combined_name_returns_404() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-404", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("sub-404");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -167,8 +170,7 @@ async fn subscribe_returns_subscription() {
         .mount(&mock)
         .await;
 
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-valid", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("sub-valid");
     let pool = test_pool(&tmp).await;
 
     // 插入一个指向 mock server 的源
@@ -222,8 +224,7 @@ async fn subscribe_returns_subscription() {
 
 #[tokio::test]
 async fn subscribe_wrong_format_returns_bad_request() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-badfmt", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("sub-badfmt");
     let pool = test_pool(&tmp).await;
     // 组合必须存在，format 校验才会被触达
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
@@ -290,11 +291,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
         });
     }
 
-    let tmp = std::env::temp_dir().join(format!(
-        "submerge-test-{}-sub-concurrency",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("sub-concurrency");
     let pool = test_pool(&tmp).await;
 
     // 插入 6 个源，全部指向同一台并发计数服务器。
@@ -345,9 +342,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
 
 #[tokio::test]
 async fn admin_requires_bearer_token() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-admin-noauth", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("admin-noauth");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -382,8 +377,7 @@ async fn admin_requires_bearer_token() {
 
 #[tokio::test]
 async fn admin_crud_sources() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-crud", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("admin-crud");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -495,8 +489,7 @@ async fn preview_returns_node_list() {
         .mount(&mock)
         .await;
 
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-preview", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("preview");
     let pool = test_pool(&tmp).await;
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
@@ -532,8 +525,7 @@ async fn preview_returns_node_list() {
 
 #[tokio::test]
 async fn config_returns_username() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-cfg-user", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("cfg-user");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -547,8 +539,7 @@ async fn config_returns_username() {
 
 #[tokio::test]
 async fn change_password_invalidates_all_sessions() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-chpass", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("chpass");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -640,8 +631,7 @@ async fn assert_error_json(resp: axum::response::Response, expected_code: &str) 
 #[tokio::test]
 async fn rejection_non_numeric_id_returns_unified_json() {
     // 回归：PUT /admin/sources/abc 的非数字 {id} 应走统一错误格式
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-path", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("rej-path");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -666,8 +656,7 @@ async fn rejection_non_numeric_id_returns_unified_json() {
 #[tokio::test]
 async fn rejection_malformed_json_returns_unified_json() {
     // 回归：POST /admin/sources 的 malformed JSON body 应走统一错误格式
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-json", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("rej-json");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -702,8 +691,7 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
         .mount(&mock)
         .await;
 
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-wg-skip", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("wg-skip");
     let pool = test_pool(&tmp).await;
     let url = format!("{}/sub", mock.uri());
     let res =
@@ -758,9 +746,7 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
 
 #[tokio::test]
 async fn api_path_variants_return_json_404() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-api-variants", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("api-variants");
     // 构造含 index.html 的 dist，确保 SPA 回退存在（若被绕过会返回 HTML 200）
     let dist = tmp.join("web-dist");
     std::fs::create_dir_all(&dist).unwrap();
@@ -811,8 +797,7 @@ async fn api_path_variants_return_json_404() {
 
 #[tokio::test]
 async fn static_index_served_from_dist() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-static", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("static");
     // 创建一个假 web-dist：index.html + 一个静态资源
     let dist = tmp.join("web-dist");
     std::fs::create_dir_all(&dist).unwrap();
@@ -935,8 +920,7 @@ async fn static_index_served_from_dist() {
 #[tokio::test]
 async fn legacy_db_without_kind_column_is_migrated() {
     // 模拟早期版本建的表（无 kind 列）：init_db 应 ALTER 迁移成功并保留数据
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-legacy", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("legacy");
     let db_path = tmp.join("test.db");
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
@@ -978,8 +962,7 @@ async fn legacy_db_without_kind_column_is_migrated() {
 async fn single_source_parses_without_network() {
     // single 源指向一个无法连通的地址（127.0.0.1:1）；若代码误发请求必然失败进错误列表，
     // 正确实现（直接解析）则节点正常出现。
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-single", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("single");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let state = server::state::AppState::new(pool, cfg);
@@ -1032,8 +1015,7 @@ async fn single_source_parses_without_network() {
 
 #[tokio::test]
 async fn invalid_single_source_reports_source_error() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-single-bad", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("single-bad");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let state = server::state::AppState::new(pool, cfg);
@@ -1062,8 +1044,7 @@ async fn invalid_single_source_reports_source_error() {
 
 #[tokio::test]
 async fn admin_crud_respects_kind() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-kind", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("kind");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -1162,11 +1143,7 @@ async fn admin_crud_respects_kind() {
 
 #[tokio::test]
 async fn refresh_single_source_reports_locally() {
-    let tmp = std::env::temp_dir().join(format!(
-        "submerge-test-{}-single-refresh",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("single-refresh");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool.clone(), cfg).await;
@@ -1249,9 +1226,7 @@ async fn refresh_single_source_reports_locally() {
 
 #[tokio::test]
 async fn combined_tables_and_cascade() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-combined-tbl", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("combined-tbl");
     let pool = test_pool(&tmp).await;
 
     // 建一个源 + 两个组合，源被两个组合共享
@@ -1323,11 +1298,7 @@ async fn combined_tables_and_cascade() {
 
 #[tokio::test]
 async fn combined_crud_and_members() {
-    let tmp = std::env::temp_dir().join(format!(
-        "submerge-test-{}-combined-crud",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("combined-crud");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -1527,9 +1498,7 @@ async fn combined_subscription_serves_only_members() {
         .mount(&mock)
         .await;
 
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-combined-sub", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("combined-sub");
     let pool = test_pool(&tmp).await;
     let url = format!("{}/sub", mock.uri());
     // remote 源（mock，节点 IN）与 single 源（节点 OUT，指向不可达地址）
@@ -1595,11 +1564,7 @@ async fn combined_subscription_serves_only_members() {
 
 #[tokio::test]
 async fn combined_subscription_empty_members_returns_200() {
-    let tmp = std::env::temp_dir().join(format!(
-        "submerge-test-{}-combined-empty",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("combined-empty");
     let pool = test_pool(&tmp).await;
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('empty-grp', 'now')")
         .execute(&pool)
@@ -1626,9 +1591,7 @@ async fn combined_subscription_empty_members_returns_200() {
 
 #[tokio::test]
 async fn preview_combined_filter() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-preview-cmb", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("preview-cmb");
     let pool = test_pool(&tmp).await;
     let res = sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S1', 's1', 'single', 1, 'now')")
         .execute(&pool)
@@ -1714,9 +1677,7 @@ async fn preview_combined_filter() {
 #[tokio::test]
 async fn combined_subscription_all_members_failed_returns_502() {
     // 组合的全部成员源都拉取失败（remote 源指向必然拒绝连接的地址）→ 502 附错误明细。
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-combined-502", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("combined-502");
     let pool = test_pool(&tmp).await;
 
     // remote 源：127.0.0.1:1 连接被立即拒绝，fetch_source 报错 → SourceError
@@ -1776,8 +1737,7 @@ async fn combined_subscription_all_members_failed_returns_502() {
 
 #[tokio::test]
 async fn user_and_session_db_functions() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-auth-db", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("auth-db");
     let pool = test_pool(&tmp).await;
 
     // 初始无用户
@@ -1853,8 +1813,7 @@ async fn user_and_session_db_functions() {
 
 #[tokio::test]
 async fn setup_creates_admin_once() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("setup");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -1892,8 +1851,7 @@ async fn setup_creates_admin_once() {
 
 #[tokio::test]
 async fn setup_validates_fields() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup-val", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("setup-val");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -1931,8 +1889,7 @@ async fn setup_validates_fields() {
 
 #[tokio::test]
 async fn login_and_logout_flow() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-login", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("login");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -1986,9 +1943,7 @@ async fn login_and_logout_flow() {
 
 #[tokio::test]
 async fn preview_filters_by_kind() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-preview-kind", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("preview-kind");
     let pool = test_pool(&tmp).await;
     // single 源（不拉网络）+ remote 源（指向 127.0.0.1:1 必然失败 → 产生源错误但请求 200）
     sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#LOCAL', 'local', 'single', 1, 'now')")
@@ -2047,9 +2002,7 @@ async fn preview_filters_by_kind() {
 #[tokio::test]
 async fn setup_is_atomic_against_duplicate_admin() {
     // 回归：并发/重复 setup 不产生第二个管理员（INSERT...SELECT WHERE NOT EXISTS 原子性）。
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-setup-atomic", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("setup-atomic");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -2085,8 +2038,7 @@ async fn setup_is_atomic_against_duplicate_admin() {
 #[tokio::test]
 async fn concurrent_setup_never_creates_two_admins() {
     // 两个 setup 并发（不同用户名）：原子 INSERT 保证只有一个成功
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup-conc", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
+    let tmp = fresh_tmp("setup-conc");
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool.clone(), cfg).await;

@@ -15,7 +15,9 @@ fn unique_dir(tag: &str) -> std::path::PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("submerge-{tag}-{}-{nanos}", std::process::id()))
+    let dir = std::env::temp_dir().join(format!("submerge-{tag}-{}-{nanos}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir); // 清理同名残留（nanos 唯一性之外的兜底）
+    dir
 }
 
 #[tokio::test]

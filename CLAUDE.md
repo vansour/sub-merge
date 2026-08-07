@@ -9,7 +9,7 @@ sub-merge：订阅链接聚合与转换工具。聚合多个订阅源，实时�
 ## 架构
 
 - `crates/proxy-core`：纯逻辑。11 种协议解析（ss/ssr/socks5/http/vmess/vless/trojan/hysteria/hysteria2/tuic/wireguard）、3 种格式序列化（clash/v2ray/singbox）。协议/格式的单元测试与 roundtrip/proptest 测试在此。
-- `crates/server`：axum 服务。SQLite（sqlx）持久化 sources/settings/combined_subs/combined_sources。路由：`/subscribe/{name}`（组合订阅输出，按组合成员拉取，无鉴权）、`/admin/*`（源 CRUD/预览/配置/组合订阅 CRUD，Bearer 鉴权）；`/healthz`；SPA 静态托管 + 前端路由回退。
+- `crates/server`：axum 服务。SQLite（sqlx）持久化 sources/users/sessions/combined_subs/combined_sources（settings 表保留但已无读写）。路由：`/subscribe/{name}`（组合订阅输出，按组合成员拉取，无鉴权）、`/admin/*`（源 CRUD/预览/配置/组合订阅 CRUD，Bearer 鉴权）；`/healthz`；SPA 静态托管 + 前端路由回退。
 - `crates/server/web`（submerge-web）：**独立于 workspace**（不加入 members，避免 dx build 与 cargo build --workspace 冲突），只能由 dx 构建。dioxus 0.8.0-alpha.1（精确版本锁定）+ WASM。样式全部在 `index.html` 内联 CSS（CSS 变量双主题，`prefers-color-scheme` 自动切换）。页面数据经 `src/data.rs` 的 DataStore 单元缓存（按 sources/combineds/preview/config 四单元共享）：MainShell 先预载再切换 tab（旧页保持+菜单项转圈），已访问页缓存秒开；CRUD/刷新后 `refresh` 对应单元回写缓存。
 - `crates/web-core`（submerge-web-core）：前端纯逻辑库（API 契约 DTO、ApiError、映射/格式化函数），**在 workspace 内**，由 `cargo test --workspace` 覆盖；无 dioxus/web-sys 依赖，host 原生可测。web crate 以 path 依赖引用。
 

@@ -97,6 +97,14 @@ def click_nav(ws, label):
     ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('%s')).click()" % label)
     time.sleep(0.3)
 
+def preview_rows(ws):
+    """预览区节点表格行数（页面另有「订阅源列表」表格，同用 .table-wrap tbody tr）。
+
+    按卡片标题「预览」定位预览卡片再数行：比 :last-of-type 稳（预览卡片后面的
+    弹窗/后续卡片不影响），也比 .preview-toolbar ~ .table-wrap 语义稳（组件
+    内部结构变化不敏感）。卡片缺失时返回 null，让调用方断言自然失败。"""
+    return ev(ws, "(()=>{const c=Array.from(document.querySelectorAll('.card')).find(c=>c.querySelector('h2.card-title')?.textContent==='预览');return c?c.querySelectorAll('.table-wrap tbody tr').length:null})()")
+
 def click_refresh(ws):
     """点预览区「刷新预览」按钮;页面无该按钮时回退到任一「刷新」按钮。
 
@@ -257,7 +265,19 @@ def scenario_preview_filter(ws):
     if not any(c.get("name") == "c-test" for c in combos):
         req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer " + SESSION_TOKEN})
         with u.urlopen(req, timeout=5) as r:
-            first_id = json.loads(r.read())[0]["id"]
+            sources = json.loads(r.read())
+        if not sources:
+            # 空 DB：先经 API 种一个 single 源（与 seed_sources 相同节点形态），再取 first_id
+            u.urlopen(u.Request(URL + "/admin/sources", method="POST",
+                                data=json.dumps({"name": "c-seed",
+                                                 "url": "vless://e99a8e5a-6b2b-4a1d-9c5f-1a2b3c4d5e6f@1.2.3.4:443#c-seed",
+                                                 "kind": "single"}).encode(),
+                                headers={"Authorization": "Bearer " + SESSION_TOKEN,
+                                         "Content-Type": "application/json"}), timeout=5)
+            req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer " + SESSION_TOKEN})
+            with u.urlopen(req, timeout=5) as r:
+                sources = json.loads(r.read())
+        first_id = sources[0]["id"]
         req = u.Request(URL + "/admin/combineds", method="POST",
                         data=json.dumps({"name": "c-test", "source_ids": [first_id]}).encode(),
                         headers={"Authorization": "Bearer " + SESSION_TOKEN, "Content-Type": "application/json"})
@@ -343,10 +363,10 @@ def scenario_refresh_failure(ws):
     seed_sources(ws, 1)
     login(ws)
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')"), "本地订阅就绪")
-    # 预览区挂载自动拉取:等「共 N 个节点」徽章渲染(数据就绪信号),记录表格行数
+    # 预览区挂载自动拉取:等「共 N 个节点」徽章渲染(数据就绪信号),记录预览表格行数
     assert_true(wait_until(ws, "!!document.querySelector('.preview-toolbar .badge')"), "预览区已加载(节点徽章渲染)")
-    rows0 = ev(ws, "document.querySelectorAll('.table-wrap tbody tr').length")
-    assert_true(isinstance(rows0, int) and rows0 > 0, "表格行已渲染(%d)" % (rows0 if isinstance(rows0, int) else -1))
+    rows0 = preview_rows(ws)
+    assert_true(isinstance(rows0, int) and rows0 > 0, "预览表格行已渲染(%d)" % (rows0 if isinstance(rows0, int) else -1))
     try:
         # 停 server
         for p, _, _, _ in hits:
@@ -362,7 +382,7 @@ def scenario_refresh_failure(ws):
         # 点预览区刷新:旧数据应保留 + 错误文本出现(修复前 Error 清空 data,表格行消失)
         click_refresh(ws)
         assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "刷新失败后错误文本出现")
-        assert_true(ev(ws, "document.querySelectorAll('.table-wrap tbody tr').length") == rows0, "刷新失败后表格行数不变(旧数据保留)")
+        assert_true(preview_rows(ws) == rows0, "刷新失败后预览表格行数不变(旧数据保留)")
     finally:
         # 恢复:断言失败也不留死 server(死 server 会让后续场景全部 401/挂起)
         restart_server(pid, exe, cwd, envmap, "/tmp/submerge-server-restart.log")
