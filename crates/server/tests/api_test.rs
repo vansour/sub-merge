@@ -1916,6 +1916,20 @@ async fn user_and_session_db_functions() {
         "超限 ttl 清理 no-op 不 panic"
     );
 
+    // i64::MAX（在 chrono Duration::days 溢出带内）：try_days None → 永不过期语义
+    assert!(
+        server::db::validate_session(&pool, &t6, i64::MAX as u64)
+            .await
+            .unwrap(),
+        "ttl=i64::MAX 不得 panic 且视为永不过期"
+    );
+    assert!(
+        server::db::delete_expired_sessions(&pool, i64::MAX as u64)
+            .await
+            .is_ok(),
+        "i64::MAX ttl 清理 no-op 不 panic"
+    );
+
     // 写入秒精度（无纳秒小数）：新会话 last_used_at 为 'YYYY-MM-DDTHH:MM:SSZ' 形态
     let t7 = server::db::create_session(&pool).await.unwrap();
     let stored: String =

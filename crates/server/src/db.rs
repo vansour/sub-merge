@@ -281,14 +281,15 @@ pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> 
         .await?;
     let Some(row) = row else { return Ok(false) };
     let last_used: String = row.get(0);
-    // 超 i64::MAX 的病态配置视为永不过期（跳过过期检查直接续期，不 panic 不误删）；
-    // 0 禁用过期。i64 转换失败时（u64::MAX 等）不能走 `unwrap_or(i64::MAX)`——
-    // chrono Duration::days(i64::MAX) 会溢出 panic。
+    // 病态配置（超出 chrono TimeDelta 上限，含 u64::MAX/i64::MAX 溢出带）视为永不过期：
+    // 跳过过期检查直接续期，不 panic 不误删；0 禁用过期。TimeDelta::try_days 返回 Option，
+    // None 即超限（Duration::days 对 >106,751,991,167 天会溢出 panic，故必须用 try_days）。
     if let Ok(ttl) = i64::try_from(ttl_days)
         && ttl > 0
+        && let Some(ttl) = chrono::TimeDelta::try_days(ttl)
     {
         let expired = match chrono::DateTime::parse_from_rfc3339(&last_used) {
-            Ok(last) => last + chrono::Duration::days(ttl) < chrono::Utc::now(),
+            Ok(last) => last + ttl < chrono::Utc::now(),
             Err(_) => true, // 无法解析视为过期（含旧格式空串）
         };
         if expired {
@@ -312,18 +313,21 @@ pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> 
     Ok(true)
 }
 
-/// 启动清理：删除所有过期会话（ttl_days == 0 或超 i64::MAX 的病态配置时 no-op，
-/// 后者视为永不过期，不 panic 不误删）。
+/// 启动清理：删除所有过期会话（ttl_days == 0 或超出 chrono TimeDelta 上限的病态配置
+/// 时 no-op，后者视为永不过期，不 panic 不误删）。
 pub async fn delete_expired_sessions(pool: &SqlitePool, ttl_days: u64) -> Result<()> {
-    let Ok(ttl) = i64::try_from(ttl_days) else {
+    let Ok(days) = i64::try_from(ttl_days) else {
         return Ok(()); // 病态配置视为永不过期，无清理
     };
-    if ttl == 0 {
+    if days == 0 {
         return Ok(());
     }
+    let Some(ttl) = chrono::TimeDelta::try_days(days) else {
+        return Ok(()); // 超 TimeDelta 上限（Duration::days 溢出带），视为永不过期
+    };
     // cutoff 截断到秒精度，与迁移回填/存储格式对齐（RFC3339 秒级），
     // 避免纳秒级 now 与秒级 last_used_at 字典序比较产生 1 秒窗口误删
-    let cutoff = (chrono::Utc::now() - chrono::Duration::days(ttl))
+    let cutoff = (chrono::Utc::now() - ttl)
         .with_nanosecond(0) // 截断到秒精度，与迁移回填/存储格式对齐
         .unwrap_or_else(chrono::Utc::now)
         .to_rfc3339();
