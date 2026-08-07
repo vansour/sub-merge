@@ -51,6 +51,7 @@
 - (auth) TTL 溢出带改用 TimeDelta::try_days 彻底消除 panic（含 i64::MAX 边界用例） ([6e137ac](https://github.com/vansour/sub-merge/commit/6e137ac409b65c9992e0e7dfe8b26da52af6fc59))
 - (ci) 终审修复——git-cliff -o 显式写文件 + smoke 自建 dist symlink + changelog 版本标题 + tag 插值加固 ([5fd9cce](https://github.com/vansour/sub-merge/commit/5fd9ccefd4be16c4a89a3e057abaf3d264573b0b))
 - (proxy-core) 消除 clippy 1.97 needless_borrows_for_generic_args（contains_key 多余借用） ([90da1ad](https://github.com/vansour/sub-merge/commit/90da1adaa95d5b3be07fd85eefb140eeba93879d))
+- (ci) Docker/setup-buildx-action 仓库不存在——改用 docker/setup-buildx-action（实测 404 → 正确仓库名） ([a625e5a](https://github.com/vansour/sub-merge/commit/a625e5a3100893ee6a452c612f38e0423be876a1))
 
 ### Chores
 
@@ -130,6 +131,7 @@
 - 剩余 4 项边界问题修复计划 ([0024c61](https://github.com/vansour/sub-merge/commit/0024c61012459ae4404922281f2a776bede7e759))
 - Clash 订阅组模式 + 默认配置管理设计 ([feee818](https://github.com/vansour/sub-merge/commit/feee81803f3166f35d5707b38378607c77954cea))
 - Clash 订阅组模式实施计划 ([50b070f](https://github.com/vansour/sub-merge/commit/50b070ff996e66f962e192b5a0fb07dd5bfd8301))
+- 更新 CHANGELOG.md（v0.0.1） ([2603d87](https://github.com/vansour/sub-merge/commit/2603d8734161c0877b16a17042ed1f370e8d739c))
 
 ### Features
 
