@@ -1918,3 +1918,159 @@ async fn user_and_session_db_functions() {
             .unwrap()
     );
 }
+
+fn valid_setup(name: &str) -> String {
+    json!({"username": name, "password": "pass-12345", "password_confirm": "pass-12345"})
+        .to_string()
+}
+
+async fn http(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    body: Option<String>,
+    token: Option<&str>,
+) -> (axum::http::StatusCode, serde_json::Value) {
+    let mut b = axum::http::Request::builder().method(method).uri(uri);
+    if let Some(t) = token {
+        b = b.header("authorization", format!("Bearer {t}"));
+    }
+    let req = match body {
+        Some(s) => b
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(s))
+            .unwrap(),
+        None => b.body(axum::body::Body::empty()).unwrap(),
+    };
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, v)
+}
+
+#[tokio::test]
+async fn setup_creates_admin_once() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, "admin-token".to_string()).await;
+
+    // setup-status：未创建 → needs_setup true
+    let (s, v) = http(&app, "GET", "/admin/setup-status", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["needs_setup"], serde_json::Value::Bool(true));
+
+    // 创建成功 → 200
+    let (s, v) = http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(valid_setup("admin")),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["username"], "admin");
+
+    // 已创建：setup-status false + setup 409 锁定
+    let (_, v) = http(&app, "GET", "/admin/setup-status", None, None).await;
+    assert_eq!(v["needs_setup"], serde_json::Value::Bool(false));
+    let (s, _) = http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(valid_setup("admin2")),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn setup_validates_fields() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup-val", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, "admin-token".to_string()).await;
+
+    // 密码过短 → 400
+    let (s, _) = http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(
+            json!({"username": "a", "password": "short", "password_confirm": "short"}).to_string(),
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // 两次不一致 → 400
+    let (s, _) = http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(
+            json!({"username": "a", "password": "pass-12345", "password_confirm": "different"})
+                .to_string(),
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // 非法用户名 → 400
+    let (s, _) = http(&app, "POST", "/admin/setup",
+        Some(json!({"username": "bad name!", "password": "pass-12345", "password_confirm": "pass-12345"}).to_string()), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn login_and_logout_flow() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-login", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg, "admin-token".to_string()).await;
+
+    http(
+        &app,
+        "POST",
+        "/admin/setup",
+        Some(valid_setup("admin")),
+        None,
+    )
+    .await;
+
+    // 正确凭证 → 200 + token（64 hex）
+    let (s, v) = http(
+        &app,
+        "POST",
+        "/admin/login",
+        Some(json!({"username": "admin", "password": "pass-12345"}).to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let token = v["token"].as_str().unwrap().to_string();
+    assert_eq!(token.len(), 64);
+
+    // 错误密码 / 不存在用户 → 统一 401
+    for body in [
+        json!({"username": "admin", "password": "wrong"}).to_string(),
+        json!({"username": "nobody", "password": "pass-12345"}).to_string(),
+    ] {
+        let (s, v) = http(&app, "POST", "/admin/login", Some(body), None).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(v["error"]["code"], "unauthorized");
+    }
+
+    // logout 后 token 失效（此时 require_admin 还是旧 token 实现，用 GET /admin/setup-status 无法验证
+    // 会话删除——改由 Task 3 的鉴权切换后验证；此处只断言 logout 返回 204 且无鉴权问题）
+    let (s, _) = http(&app, "POST", "/admin/logout", None, Some(&token)).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+}

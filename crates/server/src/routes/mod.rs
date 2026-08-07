@@ -1,4 +1,5 @@
 // crates/server/src/routes/mod.rs
+pub mod auth;
 pub mod combineds;
 pub mod config;
 pub mod preview;
@@ -24,6 +25,7 @@ pub async fn build_router(
     let state = AppState::new(pool, cfg, admin_token);
     let api = Router::new()
         .route("/subscribe/{name}", get(subscribe::subscribe_handler))
+        .merge(auth::router())
         .merge(combineds::router())
         .merge(sources::router())
         .merge(preview::router())

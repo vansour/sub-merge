@@ -20,6 +20,13 @@ impl ApiError {
             message: msg.into(),
         }
     }
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "conflict",
+            message: msg.into(),
+        }
+    }
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
