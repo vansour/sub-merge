@@ -4,7 +4,7 @@
 use crate::api::request;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use submerge_web_core::dto::{CombinedDto, ConfigDto, PreviewResp, PreviewSummary, SourceDto};
+use submerge_web_core::dto::{CombinedDto, ConfigDto, PreviewResp, SourceDto};
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;
@@ -13,11 +13,6 @@ pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String
 
 pub async fn fetch_combineds(token: Option<&str>) -> Result<Vec<CombinedDto>, String> {
     let body = request("GET", "/admin/combineds", None, token).await?;
-    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
-}
-
-pub async fn fetch_preview_summary(token: Option<&str>) -> Result<PreviewSummary, String> {
-    let body = request("GET", "/admin/preview", None, token).await?;
     serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
 }
 
