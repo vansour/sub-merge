@@ -409,7 +409,8 @@ def main():
                  "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
                  "refresh_failure": scenario_refresh_failure,
                  "config_rotate": scenario_config_rotate,
-                 "first_load_failure": scenario_first_load_failure}
+                 "first_load_failure": scenario_first_load_failure,
+                 "restore_token": scenario_restore_token}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
