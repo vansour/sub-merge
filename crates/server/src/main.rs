@@ -14,6 +14,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cfg = AppConfig::from_env();
     let pool = init_db(&cfg.db_path).await?;
+    server::db::delete_expired_sessions(&pool, cfg.session_ttl_days).await?;
     let app = build_router(pool, cfg.clone()).await;
 
     let addr = format!("0.0.0.0:{}", cfg.port);

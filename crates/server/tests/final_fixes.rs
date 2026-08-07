@@ -36,6 +36,7 @@ async fn api_unknown_path_returns_json_404_not_spa() {
         timeout_secs: 5,
         max_nodes: 100,
         web_dist: dir.clone(),
+        session_ttl_days: 0,
     };
     let app = build_router(pool, cfg).await;
 
@@ -91,6 +92,7 @@ async fn refresh_source_zero_nodes_reports_ok_false() {
         timeout_secs: 10,
         max_nodes: 100,
         web_dist: dir.clone(),
+        session_ttl_days: 0,
     };
     let app = build_router(pool.clone(), cfg).await;
     // 会话鉴权：直接走 db 层创建用户与会话

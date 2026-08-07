@@ -9,6 +9,8 @@ pub struct AppConfig {
     pub timeout_secs: u64,
     pub max_nodes: usize,
     pub web_dist: PathBuf,
+    /// 会话有效期（天）：0 禁用过期（会话永久有效，改密全失效）
+    pub session_ttl_days: u64,
 }
 
 impl AppConfig {
@@ -31,6 +33,10 @@ impl AppConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(2000);
         let web_dist = std::env::var("WEB_DIST").unwrap_or_else(|_| "./web/dist".into());
+        let session_ttl_days = std::env::var("SESSION_TTL_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
         Self {
             port,
             db_path: PathBuf::from(db_path),
@@ -38,6 +44,7 @@ impl AppConfig {
             timeout_secs,
             max_nodes,
             web_dist: PathBuf::from(web_dist),
+            session_ttl_days,
         }
     }
 }

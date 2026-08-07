@@ -25,6 +25,7 @@ fn test_config(tmp: &std::path::Path) -> AppConfig {
         timeout_secs: 5,
         max_nodes: 100,
         web_dist: tmp.join("empty-dist"),
+        session_ttl_days: 0, // 测试默认禁用过期：既有测试语义不受 TTL 影响
     }
 }
 
@@ -62,6 +63,14 @@ async fn http(
         .unwrap();
     let v = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
     (status, v)
+}
+
+/// 测试内联 sha256（hex）：不回退导出 db.rs 内部函数
+fn sha256_hex_manual(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    const_hex::encode(h.finalize())
 }
 
 /// 走真实 HTTP 链路创建管理员并登录，返回会话 token
@@ -313,6 +322,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
         timeout_secs: 5,
         max_nodes: 100,
         web_dist: tmp.join("empty-dist"),
+        session_ttl_days: 0,
     };
     let state = server::state::AppState::new(pool, cfg);
 
@@ -812,6 +822,7 @@ async fn static_index_served_from_dist() {
         timeout_secs: 5,
         max_nodes: 100,
         web_dist: dist.clone(),
+        session_ttl_days: 0,
     };
     let app = server::routes::build_router(pool, cfg.clone()).await;
 
@@ -956,6 +967,45 @@ async fn legacy_db_without_kind_column_is_migrated() {
         .await
         .unwrap();
     assert_eq!(kind, "remote");
+}
+
+#[tokio::test]
+async fn legacy_db_without_last_used_at_column_is_migrated() {
+    // 模拟认证改造前的旧库（sessions 无 last_used_at 列）：
+    // init_db 应 ALTER 迁移成功、默认值填充 last_used_at，旧会话迁移后仍有效。
+    let tmp = fresh_tmp("legacy-session");
+    let db_path = tmp.join("test.db");
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_lazy_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true),
+        );
+    sqlx::query(
+        "CREATE TABLE sessions (
+            token_hash TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO sessions (token_hash, created_at) VALUES (?, '2026-01-01T00:00:00Z')")
+        .bind(sha256_hex_manual("legacy-token"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    // init_db 迁移后：旧会话获得默认 last_used_at（datetime('now')），TTL=30 下仍有效
+    let pool = init_db(&db_path).await.unwrap();
+    assert!(
+        server::db::validate_session(&pool, "legacy-token", 30)
+            .await
+            .unwrap(),
+        "migrated legacy session must validate"
+    );
 }
 
 #[tokio::test]
@@ -1776,16 +1826,50 @@ async fn user_and_session_db_functions() {
     let t2 = server::db::create_session(&pool).await.unwrap();
     assert_ne!(t1, t2);
     assert_eq!(t1.len(), 64); // 32 bytes hex
-    assert!(server::db::validate_session(&pool, &t1).await.unwrap());
+    assert!(server::db::validate_session(&pool, &t1, 0).await.unwrap());
     assert!(
-        !server::db::validate_session(&pool, "f".repeat(64).as_str())
+        !server::db::validate_session(&pool, "f".repeat(64).as_str(), 0)
             .await
             .unwrap()
     );
     server::db::delete_session(&pool, &t1).await.unwrap();
-    assert!(!server::db::validate_session(&pool, &t1).await.unwrap());
+    assert!(!server::db::validate_session(&pool, &t1, 0).await.unwrap());
     server::db::delete_all_sessions(&pool).await.unwrap();
-    assert!(!server::db::validate_session(&pool, &t2).await.unwrap());
+    assert!(!server::db::validate_session(&pool, &t2, 0).await.unwrap());
+
+    // TTL 滑动过期：last_used_at 回拨超过 TTL → 过期删除；回拨在 TTL 内 → 续期有效。
+    // 回拨用 strftime 输出 RFC3339（datetime('now') 是 'YYYY-MM-DD HH:MM:SS' 空格格式，
+    // chrono 的 parse_from_rfc3339 无法解析会走"无法解析视为过期"分支，测不到真正的 TTL 判断）。
+    let t3 = server::db::create_session(&pool).await.unwrap();
+    sqlx::query("UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-40 days') WHERE token_hash = ?")
+        .bind(sha256_hex_manual(&t3))
+        .execute(&pool).await.unwrap();
+    assert!(
+        !server::db::validate_session(&pool, &t3, 30).await.unwrap(),
+        "过期会话必须失效"
+    );
+    assert!(
+        !server::db::validate_session(&pool, &t3, 30).await.unwrap(),
+        "过期会话已被惰性删除"
+    );
+    // 回拨 10 天（TTL=30 内）→ 滑动续期后有效
+    let t4 = server::db::create_session(&pool).await.unwrap();
+    sqlx::query("UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-10 days') WHERE token_hash = ?")
+        .bind(sha256_hex_manual(&t4))
+        .execute(&pool).await.unwrap();
+    assert!(
+        server::db::validate_session(&pool, &t4, 30).await.unwrap(),
+        "TTL 内会话有效（滑动续期）"
+    );
+    // TTL=0 禁用过期
+    let t5 = server::db::create_session(&pool).await.unwrap();
+    sqlx::query("UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-100 days') WHERE token_hash = ?")
+        .bind(sha256_hex_manual(&t5))
+        .execute(&pool).await.unwrap();
+    assert!(
+        server::db::validate_session(&pool, &t5, 0).await.unwrap(),
+        "ttl=0 禁用过期"
+    );
 
     // update_password 对不存在用户必须报错（不再静默 no-op）
     assert!(
@@ -1939,6 +2023,32 @@ async fn login_and_logout_flow() {
     // logout 幂等：token 已失效仍返回 204
     let (s, _) = http(&app, "POST", "/admin/logout", None, Some(&token)).await;
     assert_eq!(s, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn expired_session_rejected_by_api() {
+    // TTL 生效的端到端路径：会话超期后任何受保护请求必须 401。
+    let tmp = fresh_tmp("ttl");
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp); // session_ttl_days: 0 基线上覆盖
+    let app = server::routes::build_router(
+        pool.clone(),
+        AppConfig {
+            session_ttl_days: 30,
+            ..cfg
+        },
+    )
+    .await;
+    let admin = setup_admin(&app).await;
+    // 回拨 last_used_at 超 TTL（RFC3339 格式，见 user_and_session_db_functions 注释）→ 请求 401
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-40 days')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (s, _) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "过期会话必须 401");
 }
 
 #[tokio::test]

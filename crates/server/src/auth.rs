@@ -19,7 +19,7 @@ pub async fn require_admin(
     let Some(token) = extract_bearer(&headers) else {
         return Err(ApiError::unauthorized("missing authorization header"));
     };
-    if crate::db::validate_session(&state.pool, token).await? {
+    if crate::db::validate_session(&state.pool, token, state.cfg.session_ttl_days).await? {
         Ok(())
     } else {
         Err(ApiError::unauthorized("invalid session"))

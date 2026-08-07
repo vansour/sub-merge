@@ -93,8 +93,29 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            last_used_at TEXT NOT NULL
         )",
+    )
+    .execute(&pool)
+    .await?;
+
+    // 旧库迁移：早期版本建表无 last_used_at 列（会话 TTL 功能前）。仅当列已存在时
+    // 忽略 ALTER 失败，其余错误（IO/锁等）一律传播——沿用 sources.kind 迁移模式。
+    // 注意：SQLite 的 ALTER TABLE ADD COLUMN 不允许非常量 DEFAULT（datetime('now')
+    // 会被拒绝），故先用空串常量默认值加列，再回填 RFC3339 格式的当前时间——
+    // 保持"旧会话获得全新 last_used_at、迁移后仍有效"的意图。
+    if let Err(e) =
+        sqlx::query("ALTER TABLE sessions ADD COLUMN last_used_at TEXT NOT NULL DEFAULT ''")
+            .execute(&pool)
+            .await
+        && !e.to_string().contains("duplicate column name")
+    {
+        return Err(e.into());
+    }
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+         WHERE last_used_at = ''",
     )
     .execute(&pool)
     .await?;
@@ -219,21 +240,60 @@ pub async fn get_username(pool: &SqlitePool) -> Result<Option<String>> {
 
 pub async fn create_session(pool: &SqlitePool) -> Result<String> {
     let token = gen_token();
-    let created_at = chrono::Utc::now().to_rfc3339();
-    sqlx::query("INSERT INTO sessions (token_hash, created_at) VALUES (?, ?)")
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("INSERT INTO sessions (token_hash, created_at, last_used_at) VALUES (?, ?, ?)")
         .bind(sha256_hex(&token))
-        .bind(created_at)
+        .bind(&now)
+        .bind(&now)
         .execute(pool)
         .await?;
     Ok(token)
 }
 
-pub async fn validate_session(pool: &SqlitePool, token: &str) -> Result<bool> {
-    let row = sqlx::query("SELECT 1 FROM sessions WHERE token_hash = ?")
-        .bind(sha256_hex(token))
+/// 校验会话：ttl_days > 0 时超过有效期（last_used + ttl < now）的会话删除并返回 false；
+/// 有效会话滑动续期（UPDATE last_used_at）。ttl_days == 0 禁用过期。
+pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> Result<bool> {
+    let hash = sha256_hex(token);
+    let row = sqlx::query("SELECT last_used_at FROM sessions WHERE token_hash = ?")
+        .bind(&hash)
         .fetch_optional(pool)
         .await?;
-    Ok(row.is_some())
+    let Some(row) = row else { return Ok(false) };
+    let last_used: String = row.get(0);
+    if ttl_days > 0 {
+        let expired = match chrono::DateTime::parse_from_rfc3339(&last_used) {
+            Ok(last) => last + chrono::Duration::days(ttl_days as i64) < chrono::Utc::now(),
+            Err(_) => true, // 无法解析视为过期（含旧格式空串）
+        };
+        if expired {
+            sqlx::query("DELETE FROM sessions WHERE token_hash = ?")
+                .bind(&hash)
+                .execute(pool)
+                .await?;
+            return Ok(false);
+        }
+    }
+    // 滑动续期
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("UPDATE sessions SET last_used_at = ? WHERE token_hash = ?")
+        .bind(&now)
+        .bind(&hash)
+        .execute(pool)
+        .await?;
+    Ok(true)
+}
+
+/// 启动清理：删除所有过期会话（ttl_days == 0 时 no-op）。
+pub async fn delete_expired_sessions(pool: &SqlitePool, ttl_days: u64) -> Result<()> {
+    if ttl_days == 0 {
+        return Ok(());
+    }
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
+    sqlx::query("DELETE FROM sessions WHERE last_used_at < ?")
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn delete_session(pool: &SqlitePool, token: &str) -> Result<()> {
