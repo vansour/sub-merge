@@ -32,7 +32,7 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
 
@@ -84,7 +84,7 @@ jobs:
       - name: generate changelog
         run: |
           git-cliff --latest --strip header > /tmp/release-body.md
-          git-cliff -u
+          git-cliff -o CHANGELOG.md
       - name: commit CHANGELOG.md back to main
         run: |
           git config user.name "github-actions[bot]"
@@ -93,7 +93,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "CHANGELOG.md unchanged"
           else
-            git commit -m "docs: 更新 CHANGELOG.md（${GITHUB_REF_NAME}）"
+            git commit -m "docs: 更新 CHANGELOG.md（${{ github.ref_name }}）"
             git push origin HEAD:main
           fi
       - uses: actions/upload-artifact@v4

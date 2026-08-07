@@ -5,6 +5,10 @@ header = """
 本文件由 git-cliff 在每次发版时自动更新（.github/workflows/release.yml）。请勿手工编辑。
 """
 body = """
+{% if version %}
+## {{ version }} - {{ timestamp | date(format="%Y-%m-%d") }}
+
+{% endif %}
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 {% for commit in commits %}

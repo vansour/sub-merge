@@ -47,6 +47,10 @@ step "1/9 dx build --web --release --debug-symbols false"
   dx build --web --release --debug-symbols false
 ) || fail "dx build --web --release 失败"
 
+# dx 输出到 target/dx/.../public；dist 是 git-ignored 的 dev symlink（make build-web 才建），
+# 全新 checkout 需自建（指向与 Makefile 相同的目标）。
+ln -sfn target/dx/submerge-web/release/web/public "$ROOT/crates/server/web/dist"
+
 WEB_DIST="$ROOT/crates/server/web/dist"
 [[ -f "$WEB_DIST/index.html" ]] || fail "dist/index.html 不存在（WEB_DIST=$WEB_DIST）"
 printf 'dist 就绪: %s\n' "$(readlink -f "$WEB_DIST")"
@@ -155,10 +159,18 @@ combined="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/combineds" \
   -d "{\"name\":\"merged\",\"source_ids\":[$SRC_ID]}")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["name"]=="merged"; assert d["source_ids"]==[int(sys.argv[1])], d; print("combined id=%d"%d["id"])' <<<"$combined" "$SRC_ID"
 
+# clash 订阅组模式：模板 + proxy-providers 引用本服务 v2ray 聚合，节点不内联
 clash_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=clash")"
-grep -q "fixture-node" <<<"$clash_out" || fail "/subscribe/merged 未输出 fixture-node"
-grep -q "proxies:" <<<"$clash_out" || fail "/subscribe/merged 未输出 proxies 段"
-printf 'GET /subscribe/merged?format=clash → 200 OK, 含 fixture-node\n'
+grep -q "proxy-providers:" <<<"$clash_out" || fail "/subscribe/merged 未输出 proxy-providers（订阅组模式）"
+grep -q "url: http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=v2ray" <<<"$clash_out" \
+  || fail "/subscribe/merged 未引用 v2ray 聚合链接"
+printf 'GET /subscribe/merged?format=clash → 200 OK, 订阅组模板\n'
+
+v2ray_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=v2ray")"
+v2ray_decoded="$(python3 -c 'import base64,sys; print(base64.b64decode(sys.argv[1]).decode())' "$v2ray_out")" \
+  || fail "/subscribe/merged?format=v2ray 输出非合法 base64"
+grep -q "fixture-node" <<<"$v2ray_decoded" || fail "/subscribe/merged?format=v2ray 未输出 fixture-node"
+printf 'GET /subscribe/merged?format=v2ray → 200 OK, 含 fixture-node\n'
 
 # ---- 7. 组合订阅名不匹配 404 ----
 step "7/9 错误组合名 404"
