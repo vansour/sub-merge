@@ -44,7 +44,7 @@ pub struct PreviewSummary {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigDto {
-    pub admin_token: String,
+    pub username: String,
 }
 
 #[cfg(test)]
@@ -112,9 +112,9 @@ mod tests {
 
     #[test]
     fn config_dto_parses() {
-        let j = r#"{"admin_token":"abc123"}"#;
+        let j = r#"{"username":"admin"}"#;
         let d: ConfigDto = serde_json::from_str(j).unwrap();
-        assert_eq!(d.admin_token, "abc123");
+        assert_eq!(d.username, "admin");
     }
 
     #[test]

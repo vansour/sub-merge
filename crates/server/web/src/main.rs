@@ -148,8 +148,16 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                 div { class: "sidebar-footer",
                     span { class: "sidebar-version", "v0.1.0" }
                     button { class: "btn btn-ghost btn-sm", onclick: move |_| {
-                        clear_token();
-                        token.set(None);
+                        let t = token.read().clone();
+                        let mut token = token.clone();
+                        spawn(async move {
+                            // 服务端注销会话（失败也照清本地，本地退出兜底）
+                            if let Some(t) = t {
+                                let _ = request("POST", "/admin/logout", None, Some(&t)).await;
+                            }
+                            clear_token();
+                            token.set(None);
+                        });
                     },
                         {icon("logout", 14)}
                         "退出登录"
