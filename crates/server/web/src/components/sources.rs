@@ -273,10 +273,8 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
             }
         }
         div { class: "card",
-            h2 { class: "card-title",
-                "订阅源列表"
-                span { class: "badge on", "{source_list.len()} 个源" }
-            }
+            h2 { class: "card-title", "订阅源列表" }
+            span { class: "badge on", "{source_list.len()} 个源" }
             if rows.is_empty() {
                 div { class: "empty",
                     {icon("sources", 36)}
