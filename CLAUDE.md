@@ -49,6 +49,7 @@ cd crates/server/web && dx build --web --release --debug-symbols false   # 前�
 - 前端 UI 无测试 harness，验证 = `dx build` + `make smoke` + 浏览器人工核对
 - 前端**纯逻辑**（web-core）在 workspace 内，由 `cargo test --workspace` 覆盖；测试设计 spec 见 `docs/specs/2026-08-07-web-core-testing-design.md`，实施计划见 `docs/plans/2026-08-07-web-core-testing.md`
 - release 构建必须带 `--debug-symbols false`：dx 0.8.0-alpha.1 的 `debug_symbols` CLI 默认 true，且在 build/web.rs 里**无条件覆盖** dx.toml 的 `[web.wasm_opt] debug` 键（配置键无效，仅 CLI 标志生效）。不带该标志时 dx 给 wasm-opt 传 `--debuginfo`，binaryen 127（dx 固定版本）解析 rustc 1.97 的新 DWARF 报 `compile unit size was incorrect` 并 SIGABRT——dx 会打印 ERROR 但仍继续完成构建（非致命），产物带 DWARF 且更大
+- **web-sys 非 Result 导入的 JS 调用会炸整页**：`Clipboard::write_text` 这类返回裸 `Promise` 的导入，底层 JS 抛异常（属性不存在/被拒）时 web-sys 不会转成 `Result`，异常穿透成 Rust panic，wasm32 panic=abort 直接整页失效（无任何报错提示）。实测：`navigator.clipboard` 在非安全上下文（http://局域网IP 访问）为 `undefined`，点击复制按钮即卡死。**调用可能 throw 的 JS API 前必须探测**——`copy_text` 用 `js_sys::Reflect::get(nav.as_ref(), "clipboard")` 守卫后返回 Err 走 toast
 
 ## 环境变量与 token（详见 README.md）
 

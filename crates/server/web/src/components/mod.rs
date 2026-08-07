@@ -14,7 +14,16 @@ pub mod toast;
 //   Clipboard::write_text(&str) -> js_sys::Promise（用 JsFuture await）
 pub async fn copy_text(text: String) -> Result<(), String> {
     let nav = web_sys::window().map(|w| w.navigator()).ok_or("无窗口")?;
-    let clip = nav.clipboard();
+    // 非安全上下文（http://局域网IP 等非 localhost 访问）下 navigator.clipboard 为
+    // undefined：直接 writeText 会抛未捕获 JS 异常，web-sys 非 Result 导入将其转成
+    // Rust panic，wasm32 panic=abort 直接让整页失效（实测点击复制按钮后页面卡死）。
+    // 先探测属性存在性，不可用时返回 Err 走 toast 提示，不崩溃。
+    let clip_value = js_sys::Reflect::get(nav.as_ref(), &wasm_bindgen::JsValue::from_str("clipboard"))
+        .map_err(|e| format!("无法读取剪贴板: {:?}", e))?;
+    if clip_value.is_undefined() || clip_value.is_null() {
+        return Err("剪贴板不可用：需 HTTPS 或 localhost 访问".into());
+    }
+    let clip: web_sys::Clipboard = clip_value.into();
     wasm_bindgen_futures::JsFuture::from(clip.write_text(&text))
         .await
         .map_err(|e| format!("{:?}", e))?;
