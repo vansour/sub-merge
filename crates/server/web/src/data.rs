@@ -41,8 +41,7 @@ pub enum CacheStatus {
 pub struct CacheState<T> {
     pub status: CacheStatus,
     pub data: Option<T>,
-    // 加载失败原因:Task 3-7 页面接入缓存后读取(暂未消费,先按接口保留)。
-    #[allow(dead_code)]
+    // 加载失败原因:各页面 error 区展示用。
     pub error: String,
 }
 
@@ -135,8 +134,6 @@ impl DataStore {
     }
 
     /// 强制重拉单元(刷新按钮 / CRUD 回写)。加载期间保留旧 data,页面旧数据继续可读。
-    /// Task 3-7 页面接入缓存后调用(暂未消费,先按接口保留)。
-    #[allow(dead_code)]
     pub fn refresh(&self, key: UnitKey) {
         self.load(key);
     }
