@@ -109,7 +109,13 @@ pub fn Login(on_login: EventHandler<String>) -> Element {
     // None=探测 setup 状态（全页转圈）；true=首建引导；false=登录。
     let body: Element = match *needs_setup.read() {
         None => rsx! {
-            div { class: "login-logo", Spinner { size: 40 } }
+            // 探测失败（网络错误/非 JSON）时 needs_setup 保持 None，但错误必须可见，
+            // 否则用户卡在无限转圈页无任何提示。
+            if !error.read().is_empty() {
+                p { class: "error-text", "{error}" }
+            } else {
+                div { class: "login-logo", Spinner { size: 40 } }
+            }
         },
         Some(true) => rsx! {
             div { class: "field",
