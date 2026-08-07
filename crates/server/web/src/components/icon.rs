@@ -12,13 +12,6 @@ pub fn icon(name: &'static str, size: u32) -> Element {
                 path { d: "M12 6.5 16.5 9v6L12 17.5 7.5 15V9l4.5-2.5Z" }
             }
         },
-        // overview：仪表盘
-        "overview" => rsx! {
-            svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
-                path { d: "m12 14 4-4" }
-                path { d: "M3.34 19a10 10 0 1 1 17.32 0" }
-            }
-        },
         // sources：链节
         "sources" => rsx! {
             svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",

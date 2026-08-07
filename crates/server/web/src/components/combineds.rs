@@ -298,7 +298,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         }
         div { class: "card",
             h2 { class: "card-title", "预览" }
-            div { class: "preview-filter-row",
+            div {
                 select {
                     class: "preview-filter",
                     value: preview_combined.read().clone().unwrap_or_default(),

@@ -143,13 +143,13 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                 }
                 nav { class: "nav",
                     NavGroup {
-                        name: "subs", label: "订阅管理", icon_name: "sources", open: open_groups.read().contains("subs"),
+                        label: "订阅管理", icon_name: "sources", open: open_groups.read().contains("subs"),
                         on_toggle: move |_| {
                             let mut g = open_groups.write();
                             if g.contains("subs") { g.remove("subs"); } else { g.insert("subs"); }
                         },
                         NavGroup {
-                            name: "single", label: "单条订阅", icon_name: "combineds", open: open_groups.read().contains("single"),
+                            label: "单条订阅", icon_name: "combineds", open: open_groups.read().contains("single"),
                             on_toggle: move |_| {
                                 let mut g = open_groups.write();
                                 if g.contains("single") { g.remove("single"); } else { g.insert("single"); }
@@ -193,7 +193,6 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
 // 在 if open 分支内直接插入（元素形式，不嵌套 rsx! 宏，符合坑清单）。
 #[component]
 fn NavGroup(
-    name: &'static str,
     label: &'static str,
     icon_name: &'static str,
     open: bool,

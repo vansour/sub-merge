@@ -1,4 +1,4 @@
-// 前端展示映射/格式化纯函数（协议配色、类型文案、token 掩码、订阅链接路径、toast 映射与 id 分配）。
+// 前端展示映射/格式化纯函数（协议配色、类型文案、订阅链接路径、toast 映射与 id 分配）。
 
 /// Toast 种类。文案由 push_toast 调用方提供，这里只负责图标与样式映射。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,11 +41,6 @@ pub fn proto_class(protocol: &str) -> &'static str {
 /// 订阅源类型 → 展示文案（单条/远程）。
 pub fn kind_label(kind: &str) -> &'static str {
     if kind == "single" { "单条" } else { "远程" }
-}
-
-/// 管理 token 掩码展示：任何 token 一律显示固定 8 个 •。
-pub fn mask_token(_: &str) -> &'static str {
-    "••••••••"
 }
 
 /// 组合订阅输出路径（不含 base origin，origin 由组件从 window.location 拼装）。
@@ -94,13 +89,6 @@ mod tests {
         assert_eq!(kind_label("single"), "单条");
         assert_eq!(kind_label("remote"), "远程");
         assert_eq!(kind_label("unknown"), "远程"); // 非 single 一律远程（与现状一致）
-    }
-
-    #[test]
-    fn mask_token_hides_any_token() {
-        assert_eq!(mask_token("abc"), "••••••••");
-        assert_eq!(mask_token(&"x".repeat(100)), "••••••••");
-        assert_eq!(mask_token(""), "••••••••");
     }
 
     #[test]

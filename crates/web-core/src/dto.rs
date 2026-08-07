@@ -37,12 +37,6 @@ pub struct PreviewResp {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PreviewSummary {
-    pub total: usize,
-    pub errors: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct ConfigDto {
     pub username: String,
 }
@@ -100,14 +94,6 @@ mod tests {
         assert!(d.nodes.is_empty());
         assert!(d.errors.is_empty());
         assert_eq!(d.total, 0);
-    }
-
-    #[test]
-    fn preview_summary_parses() {
-        let j = r#"{"total":10,"errors":["a"]}"#;
-        let d: PreviewSummary = serde_json::from_str(j).unwrap();
-        assert_eq!(d.total, 10);
-        assert_eq!(d.errors, vec!["a"]);
     }
 
     #[test]
