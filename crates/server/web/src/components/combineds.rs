@@ -251,11 +251,16 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
 
     // 弹窗内成员勾选态由 member_rows 预渲染快照持有，这里只需 name 快照（受控回显）。
     let form_name = form.read().name.clone();
-    // 表单错误优先展示；无表单错误时展示缓存加载错误。
-    let page_error = if error.read().is_empty() {
-        combineds_state.error.clone()
-    } else {
+    // 表单错误优先展示；无表单错误时拼接缓存单元错误（combineds 主单元 + sources 次级单元，
+    // 次级单元失败也要可见——否则成员勾选列表消失得无声无息，与 overview 的 join 模式一致）。
+    let page_error = if !error.read().is_empty() {
         error.read().clone()
+    } else {
+        [combineds_state.error.clone(), sources_state.error.clone()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ")
     };
     rsx! {
         div { class: "page-head",

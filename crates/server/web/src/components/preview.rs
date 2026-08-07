@@ -118,10 +118,20 @@ pub fn Preview(token: Signal<Option<String>>) -> Element {
     } else {
         preview_state.status == CacheStatus::Loading
     };
+    // 页内错误 = 视图错误 + combineds 次级单元错误（下拉数据源：两种视图的下拉都依赖它，
+    // 失败时没有选项可选，须可见原因——与 overview 的 join 模式一致）。
     let page_error = if selected.read().is_some() {
-        local_error.read().clone()
+        [local_error.read().clone(), combineds_state.error.clone()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ")
     } else {
-        preview_state.error.clone()
+        [preview_state.error.clone(), combineds_state.error.clone()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ")
     };
 
     rsx! {
