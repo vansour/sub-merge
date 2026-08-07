@@ -531,143 +531,92 @@ async fn preview_returns_node_list() {
 }
 
 #[tokio::test]
-async fn config_get_and_rotate() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-config", std::process::id()));
+async fn config_returns_username() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-cfg-user", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    // 预置 settings.admin_token：GET /admin/config 回显 settings 中的值（鉴权已是会话 token，与它无关）
-    server::db::set_setting(&pool, "admin_token", "preset-token")
-        .await
-        .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
     let admin = setup_admin(&app).await;
 
-    let auth = |mut req: Request<Body>| {
-        req.headers_mut().insert(
-            "authorization",
-            format!("Bearer {}", admin).parse().unwrap(),
-        );
-        req
-    };
-
-    // GET config：只含 admin_token（settings 回显）；combined_name/subscribe_url/subscribe_token 已移除
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            Request::builder()
-                .uri("/admin/config")
-                .body(Body::empty())
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["admin_token"], "preset-token");
-    assert!(
-        v.get("combined_name").is_none(),
-        "combined_name must be gone"
-    );
-    assert!(
-        v.get("subscribe_url").is_none(),
-        "subscribe_url must be gone"
-    );
-    assert!(
-        v.get("subscribe_token").is_none(),
-        "subscribe_token must be gone"
-    );
-
-    // 轮换 subscribe → 400（rotate 仅接受 admin）
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            Request::builder()
-                .method("PUT")
-                .uri("/admin/config")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"rotate": "subscribe"}).to_string()))
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let (s, v) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["username"], "admin");
+    assert!(v.get("admin_token").is_none(), "admin_token must be gone");
 }
 
 #[tokio::test]
-async fn admin_token_rotation_takes_effect_live() {
-    let tmp =
-        std::env::temp_dir().join(format!("submerge-test-{}-admin-rotate", std::process::id()));
+async fn change_password_invalidates_all_sessions() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-chpass", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    server::db::set_setting(&pool, "admin_token", "old-token")
-        .await
-        .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
     let admin = setup_admin(&app).await;
+    // 第二台设备：再登录拿一个会话
+    let (_, v) = http(
+        &app,
+        "POST",
+        "/admin/login",
+        Some(json!({"username": "admin", "password": "pass-12345"}).to_string()),
+        None,
+    )
+    .await;
+    let second = v["token"].as_str().unwrap().to_string();
 
-    let auth = |token: &str, req: Request<Body>| {
-        let mut req = req;
-        req.headers_mut().insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
-        req
-    };
+    // 旧密码错误 → 400
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"change_password": {"old": "wrong", "new": "new-pass-678"}}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 
-    // 轮换 admin token（用会话 token 调 PUT）→ 200，settings 回显新 token
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            &admin,
-            Request::builder()
-                .method("PUT")
-                .uri("/admin/config")
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"rotate": "admin"}).to_string()))
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let new_admin = v["admin_token"].as_str().unwrap().to_string();
-    assert_ne!(new_admin, "old-token");
+    // 新密码过短 → 400
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"change_password": {"old": "pass-12345", "new": "short"}}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 
-    // 轮换不影响会话鉴权：会话 token 仍有效（鉴权走 sessions 表，settings 轮换不再使其失效）
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            &admin,
-            Request::builder()
-                .uri("/admin/config")
-                .body(Body::empty())
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
+    // 正确改密 → 200，返回 username
+    let (s, v) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"change_password": {"old": "pass-12345", "new": "new-pass-678"}}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["username"], "admin");
 
-    // 轮换出的 settings token 不再是鉴权凭证：401
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            &new_admin,
-            Request::builder()
-                .uri("/admin/config")
-                .body(Body::empty())
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    // 全部旧会话（含当前）立即失效 → 401
+    let (s, _) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _) = http(&app, "GET", "/admin/config", None, Some(&second)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+
+    // 新密码可登录
+    let (s, v) = http(
+        &app,
+        "POST",
+        "/admin/login",
+        Some(json!({"username": "admin", "password": "new-pass-678"}).to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let new_token = v["token"].as_str().unwrap().to_string();
+    let (s, _) = http(&app, "GET", "/admin/config", None, Some(&new_token)).await;
+    assert_eq!(s, StatusCode::OK);
 }
 
 async fn assert_error_json(resp: axum::response::Response, expected_code: &str) {
