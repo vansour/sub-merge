@@ -86,6 +86,18 @@ def seed_sources(ws, n):
                         headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"})
         u.urlopen(req, timeout=5)
 
+def cleanup_source(name):
+    """经 API 删除同名源(幂等)。sources_crud 每次运行新增 crud-test,
+    尾部自清理,避免跨次运行累积(否则 DB 里同名源越来越多)。"""
+    import urllib.request as u
+    req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer test-token"})
+    with u.urlopen(req, timeout=5) as r:
+        items = json.loads(r.read())
+    for it in items:
+        if it.get("name") == name:
+            u.urlopen(u.Request(URL + "/admin/sources/%d" % it["id"], method="DELETE",
+                                headers={"Authorization": "Bearer test-token"}), timeout=5)
+
 def cleanup_combined(name):
     """经 API 删除同名组合(幂等)。combined_subs.name 有 UNIQUE 约束,
     场景重跑前须先清掉同名旧数据,否则保存会 400 失败。"""
@@ -139,8 +151,7 @@ def scenario_sources_crud(ws):
     assert_true(isinstance(n0, int), "读取到添加前源总数")
     click_nav(ws, "订阅源")
     time.sleep(0.5)
-    # 添加表单:kind 下拉 + URL + 名称 两个 input + 添加按钮(以实际 DOM 为准,先打印结构)
-    print(ev(ws, "document.querySelector('.form-row')?.innerText.slice(0,200)"))
+    # 添加表单:kind 下拉 + URL + 名称 两个 input + 添加按钮
     ev(ws, "(()=>{const ins=document.querySelectorAll('.form-row input');ins[0].value='vless://e99a8e5a-6b2b-4a1d-9c5f-1a2b3c4d5e6f@9.9.9.9:443#crud-test';ins[0].dispatchEvent(new Event('input',{bubbles:true}));ins[1].value='crud-test';ins[1].dispatchEvent(new Event('input',{bubbles:true}));})()")
     ev(ws, "Array.from(document.querySelectorAll('.form-row button')).find(b=>b.textContent.includes('添加')).click()")
     time.sleep(0.8)
@@ -148,6 +159,7 @@ def scenario_sources_crud(ws):
     click_nav(ws, "概览")
     time.sleep(0.3)
     assert_true(ev(ws, "document.querySelector('.stat-value')?.textContent === '%d'" % (n0 + 1)), "概览源总数 +1(缓存回写)")
+    cleanup_source("crud-test")
 
 def scenario_preview_filter(ws):
     """预览页:全部源视图来自缓存;过滤下拉走本地拉取。"""
@@ -261,8 +273,10 @@ def restore_admin_token():
     envmap = dict(kv.split("=", 1) for kv in env if "=" in kv)
     db = envmap.get("DATABASE_PATH") or os.path.join(cwd, "submerge.db")
     conn = sqlite3.connect(db)
+    before = conn.total_changes
     conn.execute("UPDATE settings SET value='test-token' WHERE key='admin_token'")
     conn.commit()
+    assert conn.total_changes > before, "admin_token 更新影响 0 行(settings 键缺失?)"
     conn.close()
     # 重启使内存态生效（admin_token 在 Arc<RwLock>，只有启动时会从 DB 重读）
     os.kill(int(pid), signal.SIGTERM)
