@@ -1975,3 +1975,63 @@ async fn login_and_logout_flow() {
     let (s, _) = http(&app, "POST", "/admin/logout", None, Some(&token)).await;
     assert_eq!(s, StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn preview_filters_by_kind() {
+    let tmp =
+        std::env::temp_dir().join(format!("submerge-test-{}-preview-kind", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    // single 源（不拉网络）+ remote 源（指向 127.0.0.1:1 必然失败 → 产生源错误但请求 200）
+    sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#LOCAL', 'local', 'single', 1, 'now')")
+        .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('http://127.0.0.1:1/sub', 'dead', 'remote', 1, 'now')")
+        .execute(&pool).await.unwrap();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
+
+    // ?kind=single → 只有 local 源节点
+    let (s, v) = http(
+        &app,
+        "GET",
+        "/admin/preview?kind=single",
+        None,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["total"], 1);
+    assert_eq!(v["nodes"][0]["name"], "LOCAL");
+
+    // ?kind=remote → 无节点但 200（源失败进 errors）
+    let (s, v) = http(
+        &app,
+        "GET",
+        "/admin/preview?kind=remote",
+        None,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["total"], 0);
+    assert!(
+        !v["errors"].as_array().unwrap().is_empty(),
+        "dead remote 源应进 errors"
+    );
+
+    // kind + combined 互斥 → 400
+    let (s, _) = http(
+        &app,
+        "GET",
+        "/admin/preview?kind=single&combined=grp",
+        None,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // 非法 kind → 400
+    let (s, _) = http(&app, "GET", "/admin/preview?kind=bogus", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
