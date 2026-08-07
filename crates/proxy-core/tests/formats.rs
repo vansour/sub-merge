@@ -1,4 +1,4 @@
-use proxy_core::formats::clash::serialize_clash;
+use proxy_core::formats::clash::{serialize_clash, serialize_clash_subscription};
 use proxy_core::formats::singbox::serialize_singbox;
 use proxy_core::formats::v2ray::serialize_v2ray;
 use proxy_core::model::{Crypto, Protocol, ProxyNode};
@@ -96,6 +96,55 @@ fn urlencode_equivalent_to_old_semantics() {
 fn empty_nodes_ok() {
     assert!(serialize_clash(&[]).is_ok());
     assert!(serialize_singbox(&[]).is_ok());
+}
+
+#[test]
+fn clash_subscription_default_template() {
+    let tpl = "mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n";
+    let out =
+        serialize_clash_subscription(tpl, "home", "http://x/subscribe/home?format=v2ray").unwrap();
+    assert!(out.contains("mixed-port: 7890"), "头部保留");
+    assert!(out.contains("proxy-providers:"));
+    assert!(out.contains("home:"));
+    assert!(out.contains("url: http://x/subscribe/home?format=v2ray"));
+    assert!(out.contains("proxy-groups:"));
+    assert!(out.contains("use:"));
+    assert!(out.contains("- home"));
+    // 输出必须是合法 YAML 且 providers 恰好一个
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).unwrap();
+    let prov = v["proxy-providers"].as_mapping().unwrap();
+    assert_eq!(prov.len(), 1);
+    assert!(prov.contains_key(&serde_yaml_ng::Value::String("home".into())));
+}
+
+#[test]
+fn clash_subscription_keeps_custom_sections() {
+    let tpl = "mode: rule\ndns:\n  enable: true\n  nameserver:\n    - 1.1.1.1\nrules:\n  - DOMAIN-SUFFIX,google.com,🚀 节点选择\n";
+    let out = serialize_clash_subscription(tpl, "home", "http://x/sub").unwrap();
+    assert!(out.contains("dns:"));
+    assert!(out.contains("enable: true"));
+    assert!(out.contains("1.1.1.1"));
+    assert!(out.contains("DOMAIN-SUFFIX,google.com"));
+}
+
+#[test]
+fn clash_subscription_system_sections_override() {
+    let tpl = "proxy-providers:\n  evil: {type: file, path: ./x}\nproxy-groups:\n  - name: evil\n";
+    let out = serialize_clash_subscription(tpl, "home", "http://x/sub").unwrap();
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).unwrap();
+    let prov = v["proxy-providers"].as_mapping().unwrap();
+    assert_eq!(prov.len(), 1, "模板 providers 必须被系统段覆盖");
+    assert!(prov.contains_key(&serde_yaml_ng::Value::String("home".into())));
+    assert!(!out.contains("evil"), "模板 providers/groups 不得残留");
+}
+
+#[test]
+fn clash_subscription_invalid_template() {
+    assert!(serialize_clash_subscription(": : :", "home", "http://x").is_err());
+    assert!(
+        serialize_clash_subscription("", "home", "http://x").is_ok(),
+        "空模板视为空映射，合法"
+    );
 }
 
 #[test]

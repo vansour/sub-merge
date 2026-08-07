@@ -2,6 +2,61 @@
 use crate::error::SerializeError;
 use crate::model::{Protocol, ProxyNode};
 
+/// 订阅组模式输出：模板（头部/dns/rules 等用户自定义段）+ 系统自动追加的
+/// proxy-providers / proxy-groups 两段（解析合并，覆盖模板同键）。
+/// provider 引用 sub-merge 自己的组合订阅聚合链接（v2ray base64 订阅，mihomo http provider 可拉取）。
+pub fn serialize_clash_subscription(
+    template: &str,
+    provider_key: &str,
+    provider_url: &str,
+) -> Result<String, SerializeError> {
+    let mut v: serde_yaml_ng::Value = serde_yaml_ng::from_str(template)
+        .map_err(|e| SerializeError::InvalidTemplate(e.to_string()))?;
+    if v.is_null() {
+        // 空模板（含纯空白）解析为 Null，视为空映射合法
+        v = serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new());
+    } else if !v.is_mapping() {
+        return Err(SerializeError::InvalidTemplate(
+            "root must be a mapping".into(),
+        ));
+    }
+    // 系统段：proxy-providers + proxy-groups（覆盖模板同键）
+    let providers = serde_yaml_ng::to_value(serde_json::json!({
+        provider_key: {
+            "type": "http",
+            "url": provider_url,
+            "interval": 3600,
+            "path": format!("./providers/{}.yaml", provider_key),
+            "health-check": {
+                "enable": true,
+                "url": "http://www.gstatic.com/generate_204",
+                "interval": 300,
+            },
+        }
+    }))
+    .map_err(|e| SerializeError::InvalidTemplate(e.to_string()))?;
+    let groups = serde_yaml_ng::to_value(serde_json::json!([
+        {
+            "name": "🚀 节点选择",
+            "type": "select",
+            "use": [provider_key],
+            "proxies": ["DIRECT"],
+        },
+        {
+            "name": "♻️ 自动选择",
+            "type": "url-test",
+            "url": "http://www.gstatic.com/generate_204",
+            "interval": 300,
+            "use": [provider_key],
+        },
+    ]))
+    .map_err(|e| SerializeError::InvalidTemplate(e.to_string()))?;
+    let m = v.as_mapping_mut().unwrap();
+    m.insert("proxy-providers".into(), providers);
+    m.insert("proxy-groups".into(), groups);
+    serde_yaml_ng::to_string(&v).map_err(|e| SerializeError::InvalidTemplate(e.to_string()))
+}
+
 pub fn serialize_clash(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
     let mut out =
         String::from("mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n\n");
