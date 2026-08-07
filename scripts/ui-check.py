@@ -248,6 +248,69 @@ def scenario_refresh_failure(ws):
     ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
     assert_true(wait_until(ws, "!document.querySelector('.error-text')", timeout=10), "重启后刷新恢复,错误消失")
 
+def restore_admin_token():
+    """轮换后把服务端 admin token 恢复为 test-token 并重启 server。
+
+    轮换 API 只生成随机新 token（DB 落库 + 内存态更新），无法回写指定值；
+    场景末尾直写 DB 后重启（ensure_tokens 启动时重读 DB），后续场景才可继续用 test-token。"""
+    import os, signal, subprocess
+    import sqlite3
+    hits = find_server()
+    assert_true(len(hits) > 0, "找到 :18080 server 进程")
+    pid, exe, cwd, env = hits[0]
+    envmap = dict(kv.split("=", 1) for kv in env if "=" in kv)
+    db = envmap.get("DATABASE_PATH") or os.path.join(cwd, "submerge.db")
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE settings SET value='test-token' WHERE key='admin_token'")
+    conn.commit()
+    conn.close()
+    # 重启使内存态生效（admin_token 在 Arc<RwLock>，只有启动时会从 DB 重读）
+    os.kill(int(pid), signal.SIGTERM)
+    for _ in range(20):
+        if not os.path.exists("/proc/" + pid):
+            break
+        time.sleep(0.5)
+    log = open("/tmp/submerge-server-restore.log", "ab")
+    subprocess.Popen([exe], cwd=cwd, env=envmap, stdout=log, stderr=log, start_new_session=True)
+    alive = False
+    for _ in range(40):
+        try:
+            with urllib.request.urlopen(URL + "/healthz", timeout=1) as r:
+                if r.status == 200:
+                    alive = True
+                    break
+        except Exception:
+            time.sleep(0.5)
+    assert_true(alive, "server 重启成功(/healthz 200)，admin token 已恢复 test-token")
+
+def scenario_config_rotate(ws):
+    """配置页:token 显示来自缓存;轮换后回写缓存 + 会话同步。"""
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
+    click_nav(ws, "配置")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('配置')).classList.contains('active')"), "配置就绪")
+    # 默认掩码显示是固定字符串(mask_token 恒为 ••••••••)，先点「显示」取明文，轮换后才有文本变化可断言
+    assert_true(wait_until(ws, "!!document.querySelector('.token-value')"), "token 卡片已渲染(缓存读取)")
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('显示')).click()")
+    time.sleep(0.3)
+    old = ev(ws, "document.querySelector('.token-value')?.textContent")
+    assert_true(bool(old), "读取到明文 token")
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('轮换')).click()")
+    time.sleep(0.5)
+    ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('轮换')).click()")
+    assert_true(wait_until(ws, "document.querySelector('.token-value')?.textContent !== '%s'" % old), "轮换后 token 显示已更新(缓存回写)")
+    # 服务端已轮换:旧 token 立即失效(API 直查 401)
+    import urllib.request as u
+    rejected = False
+    try:
+        req = u.Request(URL + "/admin/config", headers={"Authorization": "Bearer " + old})
+        u.urlopen(req, timeout=5)
+    except Exception as e:
+        rejected = getattr(e, "code", None) == 401
+    assert_true(rejected, "旧 token 已失效(API 401)")
+    # 恢复 test-token,使后续场景不受轮换影响
+    restore_admin_token()
+
 def scenario_combineds(ws):
     """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
     cleanup_combined("c-test")
@@ -269,7 +332,8 @@ def main():
     ws = connect()
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
                  "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
-                 "refresh_failure": scenario_refresh_failure}
+                 "refresh_failure": scenario_refresh_failure,
+                 "config_rotate": scenario_config_rotate}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 

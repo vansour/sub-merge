@@ -1,41 +1,31 @@
 // crates/server/web/src/components/config.rs
 // 配置页：Token 管理（掩码显示 + 轮换确认）。
 // 订阅链接与组合名称已迁移至「组合订阅」页，本页只保留 Token 卡片。
+// 数据读 DataStore 缓存（MainShell 预载）；轮换成功后回写缓存 + 同步会话。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::login::write_token;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
-use crate::data::fetch_config;
+use crate::data::{CacheState, CacheStatus, DataStore};
 use dioxus::prelude::*;
 use submerge_web_core::dto::ConfigDto;
 use submerge_web_core::fmt::mask_token;
 
 #[component]
 pub fn Config(token: Signal<Option<String>>) -> Element {
-    let cfg = use_signal(|| None::<ConfigDto>);
+    let data = use_context::<DataStore>();
     let error = use_signal(String::new);
     let show_admin = use_signal(|| false);
     let mut confirm = use_signal(ConfirmState::default);
     let mut pending_rotate = use_signal(|| false);
     let toasts = use_toast();
 
-    // 初次挂载加载一次。
-    use_future(move || {
-        let token = token.read().clone();
-        let mut cfg = cfg.clone();
-        let mut error = error.clone();
-        async move {
-            match fetch_config(token.as_deref()).await {
-                Ok(c) => cfg.set(Some(c)),
-                Err(e) => error.set(e),
-            }
-        }
-    });
+    // 数据来自 DataStore 缓存（MainShell 预载）；轮换成功后回写缓存。
+    let config_state = data.config.read().clone();
 
     let rotate = move || {
         let current = token.read().clone();
         let body = serde_json::json!({ "rotate": "admin" }).to_string();
-        let mut cfg = cfg.clone();
         let mut error = error.clone();
         let toasts = toasts.clone();
         // Signal 是 Copy：把 token signal 拷进闭包，rotating admin token 后同步会话。
@@ -49,7 +39,13 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
                         write_token(&c.admin_token);
                         token.set(Some(c.admin_token.clone()));
                         error.set(String::new());
-                        cfg.set(Some(c));
+                        // 回写缓存：本页渲染与 MainShell 预载都直接读 data.config。
+                        let mut sig = data.config;
+                        sig.set(CacheState {
+                            status: CacheStatus::Ready,
+                            data: Some(c.clone()),
+                            error: String::new(),
+                        });
                         push_toast(toasts, ToastKind::Success, "管理 token 已轮换");
                     }
                     Err(e) => error.set(format!("解析失败: {}", e)),
@@ -80,8 +76,8 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
     // 管理 token 的展示值（掩码切换）在 rsx 外预计算：
     // rsx 文本插值 `{...}` 里不能内嵌字符串字面量——内层引号会被 rustc 词法解析截断
     // （实测报 unknown start of token）。
-    let admin_token_show = cfg
-        .read()
+    let admin_token_show = config_state
+        .data
         .as_ref()
         .map(|c| {
             if *show_admin.read() {
@@ -92,13 +88,19 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         })
         .unwrap_or_default();
 
-    let cfg_render = cfg.clone();
+    // 轮换错误优先展示；无本地错误时展示缓存加载错误。
+    let page_error = if error.read().is_empty() {
+        config_state.error.clone()
+    } else {
+        error.read().clone()
+    };
+
     let mut show_admin_render = show_admin.clone();
     rsx! {
         div { class: "page-head",
             h1 { class: "page-title", "配置" }
         }
-        if cfg_render.read().is_some() {
+        if config_state.data.is_some() {
             div { class: "card",
                 h2 { class: "card-title", "Token" }
                 p { class: "subtle", "管理 token 轮换后，当前浏览器会话自动切换到新 token；其他设备需重新登录。" }
@@ -118,8 +120,8 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
                 }
             }
         }
-        if !error.read().is_empty() {
-            p { class: "error-text", "{error}" }
+        if !page_error.is_empty() {
+            p { class: "error-text", "{page_error}" }
         }
         ConfirmDialog { state: confirm, on_confirm: on_confirm_rotate }
     }
