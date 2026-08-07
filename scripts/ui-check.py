@@ -149,6 +149,37 @@ def scenario_sources_crud(ws):
     time.sleep(0.3)
     assert_true(ev(ws, "document.querySelector('.stat-value')?.textContent === '%d'" % (n0 + 1)), "概览源总数 +1(缓存回写)")
 
+def scenario_preview_filter(ws):
+    """预览页:全部源视图来自缓存;过滤下拉走本地拉取。"""
+    import urllib.request as u
+    # 全部源节点数随 DB 累积变化(seed 的 2 个 single 源各产出 1 节点),以 API 实时节点数为基准。
+    req = u.Request(URL + "/admin/preview", headers={"Authorization": "Bearer test-token"})
+    with u.urlopen(req, timeout=5) as r:
+        n0 = len(json.loads(r.read())["nodes"])
+    # 确保 c-test 组合存在(combineds 场景会创建;缺失时经 API 补建,成员取首个源)
+    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer test-token"})
+    with u.urlopen(req, timeout=5) as r:
+        combos = json.loads(r.read())
+    if not any(c.get("name") == "c-test" for c in combos):
+        req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer test-token"})
+        with u.urlopen(req, timeout=5) as r:
+            first_id = json.loads(r.read())[0]["id"]
+        req = u.Request(URL + "/admin/combineds", method="POST",
+                        data=json.dumps({"name": "c-test", "source_ids": [first_id]}).encode(),
+                        headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"})
+        u.urlopen(req, timeout=5)
+    seed_sources(ws, 2)
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
+    click_nav(ws, "预览")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('预览')).classList.contains('active')"), "预览就绪")
+    assert_true(wait_until(ws, "document.querySelectorAll('.table-wrap tbody tr').length === %d" % (n0 + 2)), "全部源视图 %d 个节点" % (n0 + 2))
+    # 切过滤下拉(选项来自 combineds 缓存单元,先等它出现)
+    assert_true(wait_until(ws, "!!Array.from(document.querySelector('.preview-filter')?.options ?? []).find(o=>o.textContent==='c-test')"), "下拉出现 c-test 选项")
+    ev(ws, "(()=>{const sel=document.querySelector('.preview-filter');const t=Array.from(sel.options).find(o=>o.textContent==='c-test');sel.value=t.value;sel.dispatchEvent(new Event('change',{bubbles:true}));})()")
+    time.sleep(0.8)
+    assert_true(ev(ws, "document.querySelectorAll('.table-wrap tbody tr').length === 1"), "过滤视图只显示该组合成员")
+
 def scenario_combineds(ws):
     """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
     cleanup_combined("c-test")
@@ -169,7 +200,7 @@ def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
-                 "combineds": scenario_combineds}
+                 "combineds": scenario_combineds, "preview_filter": scenario_preview_filter}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
