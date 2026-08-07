@@ -23,7 +23,7 @@ const-hex = "1"
 chrono = "0.4"
 mime_guess = { package = "mime_guess2", version = "2.3" }
 argon2 = { version = "0.5", features = ["std"] }
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
