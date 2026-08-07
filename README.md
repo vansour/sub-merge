@@ -61,6 +61,8 @@ GET /subscribe/{name}?format=clash|v2ray|singbox
 
 `{name}` 为组合订阅名（在 `/admin/combineds` 中定义）；`format` 缺省为 `clash`，无鉴权。名字不匹配返回 404；组合无成员时输出空配置（200）；全部成员源失败时返回 502 并附错误明细。
 
+`format=clash` 输出订阅组模式（proxy-providers 引用本服务的组合订阅聚合链接 `/subscribe/{name}?format=v2ray`，Clash/mihomo 客户端直拉 provider 获得节点；provider 的 scheme 取 `X-Forwarded-Proto`，缺省 http，Host 缺失返回 400）。头部字段（mixed-port/dns/rules 等）来自「Clash 配置」页的模板（`/admin/clash-config`），`proxy-providers` 与 `proxy-groups` 两段由系统自动追加。
+
 ### 管理接口（`Authorization: Bearer <会话 token>`，登录后获得）
 
 | 方法 | 路径 | 说明 |
@@ -76,6 +78,7 @@ GET /subscribe/{name}?format=clash|v2ray|singbox
 | GET/POST | /admin/combineds | 组合订阅列表 / 创建（`source_ids` 成员源数组） |
 | PUT/DELETE | /admin/combineds/{id} | 更新（名字/成员全量替换）/ 删除 |
 | GET/PUT | /admin/config | 获取配置（用户名）/ 修改密码 |
+| GET/PUT | /admin/clash-config | 获取/更新 Clash 默认配置模板（YAML 文本，头部/dns/分流 rules 等；providers/groups 由系统自动追加，PUT 校验 YAML 合法性） |
 
 ### 注意：V2Ray 格式的节点覆盖
 

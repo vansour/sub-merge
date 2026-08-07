@@ -97,6 +97,21 @@ def click_nav(ws, label):
     ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('%s')).click()" % label)
     time.sleep(0.3)
 
+# 精确匹配版本：导航含「Clash 配置」与「配置」两个按钮后，includes('配置') 会先命中
+# 「Clash 配置」（DOM 顺序 tab=3 在前）——叶子断言/点击一律用 trim 后全等匹配。
+def nav_button(ws, label):
+    return ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='%s')!==undefined" % label)
+
+def nav_loading_exact(ws, label):
+    return ev(ws, "!!(Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='%s')?.querySelector('.spinner'))" % label)
+
+def nav_active_exact(ws, label):
+    return ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='%s').classList.contains('active')" % label)
+
+def click_nav_exact(ws, label):
+    ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='%s').click()" % label)
+    time.sleep(0.3)
+
 def preview_rows(ws):
     """预览区节点表格行数（页面另有「订阅源列表」表格，同用 .table-wrap tbody tr）。
 
@@ -184,32 +199,32 @@ def scenario_nav_preload(ws):
     # 初始页=本地订阅(第一个叶子),预载 sources 单元
     assert_true(wait_until(ws, "window.__ui.saw_spinner===true", timeout=15), "初始加载中菜单项转圈")
     assert_true(wait_until(ws, "window.__ui.saw_loading===true", timeout=3), "初始加载内容区显示全页 loading")
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')"), "本地订阅就绪后激活")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪后激活")
     # 分组折叠:点「单条订阅」收起 → 本地订阅不可见 → 再展开
     ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('单条订阅')).click()")
     time.sleep(0.3)
-    assert_true(not nav_el(ws, "本地订阅"), "折叠后三级菜单隐藏")
+    assert_true(not nav_button(ws, "本地订阅"), "折叠后三级菜单隐藏")
     ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('单条订阅')).click()")
     time.sleep(0.3)
-    assert_true(nav_el(ws, "本地订阅"), "展开后三级菜单可见")
+    assert_true(nav_button(ws, "本地订阅"), "展开后三级菜单可见")
     # 回访秒开:切远程订阅(同 sources 单元缓存) → 立即切换
-    click_nav(ws, "远程订阅")
-    assert_true(nav_active(ws, "远程订阅"), "同单元切换秒开")
-    assert_true(not nav_loading(ws, "远程订阅"), "秒开路径无转圈")
+    click_nav_exact(ws, "远程订阅")
+    assert_true(nav_active_exact(ws, "远程订阅"), "同单元切换秒开")
+    assert_true(not nav_loading_exact(ws, "远程订阅"), "秒开路径无转圈")
     # 慢路径(点按切换):注入 4s 网络延迟 → 点「配置」(首个请求,无缓存) →
     # 加载窗口内旧页保持可见 + 菜单项转圈 + 未提前切换 → 就绪后切换完成。
     cmd(ws, "Network.enable")
     cmd(ws, "Network.emulateNetworkConditions",
         {"offline": False, "latency": 4000, "downloadThroughput": -1, "uploadThroughput": -1})
-    click_nav(ws, "配置")
+    click_nav_exact(ws, "配置")
     time.sleep(1.0)
     # 旧页保持:nav 文案恒在 body 内(远程订阅菜单项常在),不能只查 body 文本——
     # 断言激活态 + 页面内容(订阅源列表徽章,配置页无此结构)。
-    assert_true(ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('远程订阅')).classList.contains('active')"), "慢加载期间旧页(远程订阅)保持激活")
+    assert_true(ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='远程订阅').classList.contains('active')"), "慢加载期间旧页(远程订阅)保持激活")
     assert_true(ev(ws, "!!document.querySelector('.card h2 + .badge')"), "慢加载期间旧页内容(订阅源列表徽章)保持可见")
-    assert_true(nav_loading(ws, "配置"), "慢加载期间目标菜单项转圈")
-    assert_true(not nav_active(ws, "配置"), "慢加载期间未提前切换")
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('配置')).classList.contains('active')", timeout=15), "就绪后切换完成")
+    assert_true(nav_loading_exact(ws, "配置"), "慢加载期间目标菜单项转圈")
+    assert_true(not nav_active_exact(ws, "配置"), "慢加载期间未提前切换")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='配置').classList.contains('active')", timeout=15), "就绪后切换完成")
     cmd(ws, "Network.emulateNetworkConditions",
         {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1})
 
@@ -230,7 +245,7 @@ def scenario_first_load_failure(ws):
     # 登录走 API(setup-status/login 不在拦截范围),再注入会话刷新页面
     login(ws)
     # 初始 tab=0(本地订阅)仅需 sources 单元:不被 preview 拦截阻塞,页面照常切换。
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')", timeout=15), "初始页切换(本地订阅激活)")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')", timeout=15), "初始页切换(本地订阅激活)")
     # 预览区挂载自动拉取被拦截失败 → 预览区错误文本
     assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "预览区出现错误文本(拦截失败)")
     # 解除拦截,点预览区刷新 → 恢复
@@ -241,7 +256,7 @@ def scenario_first_load_failure(ws):
 def scenario_sources_crud(ws):
     """本地订阅页添加源 → 计数徽章 +1(原概览统计断言迁移)。"""
     login(ws)
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')"), "本地订阅就绪")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
     # 记录添加前的源数:DB 会跨场景累积(seed/重复运行),断言用 N+1 而非写死。
     # 徽章是「订阅源列表」卡片 h2.card-title 的相邻兄弟(.card h2 + .badge)。
     n0 = ev(ws, "parseInt(Array.from(document.querySelectorAll('.card h2 + .badge, .card-title + .badge'))[0]?.textContent ?? '0', 10)")
@@ -284,8 +299,8 @@ def scenario_preview_filter(ws):
         u.urlopen(req, timeout=5)
     seed_sources(ws, 2)
     login(ws)
-    click_nav(ws, "组合订阅")
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('组合订阅')).classList.contains('active')"), "组合订阅就绪")
+    click_nav_exact(ws, "组合订阅")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='组合订阅').classList.contains('active')"), "组合订阅就绪")
     # 预览下拉出现 c-test 选项 → 切换 → 节点表渲染
     assert_true(wait_until(ws, "!!Array.from(document.querySelectorAll('.preview-filter option')).find(o=>o.textContent==='c-test')"), "预览下拉出现 c-test")
     ev(ws, "(()=>{const sel=document.querySelector('.preview-filter');const t=Array.from(sel.options).find(o=>o.textContent==='c-test');sel.value=t.value;sel.dispatchEvent(new Event('change',{bubbles:true}));})()")
@@ -362,7 +377,7 @@ def scenario_refresh_failure(ws):
     # 种 1 个源保证预览区有节点可渲染(行数断言需要旧数据)
     seed_sources(ws, 1)
     login(ws)
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')"), "本地订阅就绪")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
     # 预览区挂载自动拉取:等「共 N 个节点」徽章渲染(数据就绪信号),记录预览表格行数
     assert_true(wait_until(ws, "!!document.querySelector('.preview-toolbar .badge')"), "预览区已加载(节点徽章渲染)")
     rows0 = preview_rows(ws)
@@ -399,9 +414,9 @@ def scenario_config_password(ws):
     global SESSION_TOKEN
     NEW_PASS = "ui-pass-67890"
     login(ws)
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')"), "本地订阅就绪")
-    click_nav(ws, "配置")
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('配置')).classList.contains('active')"), "配置就绪")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
+    click_nav_exact(ws, "配置")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='配置').classList.contains('active')"), "配置就绪")
     # 账号卡片:用户名来自 DataStore 缓存(GET /admin/config),渲染为 .token-row .token-value
     assert_true(wait_until(ws, "document.querySelector('.card .token-value')?.textContent === '%s'" % ADMIN_USER), "账号卡片渲染用户名 ui")
     # 三个密码输入按渲染顺序:当前密码/新密码/确认新密码
@@ -414,7 +429,7 @@ def scenario_config_password(ws):
         assert_true(wait_until(ws, "!!Array.from(document.querySelectorAll('.login-card button')).find(b=>b.textContent.includes('登录'))", timeout=10), "登录页就绪(显示登录表单)")
         ev(ws, "(()=>{const ins=document.querySelectorAll('.login-card input');ins[0].value='%s';ins[0].dispatchEvent(new Event('input',{bubbles:true}));ins[1].value='%s';ins[1].dispatchEvent(new Event('input',{bubbles:true}));})()" % (ADMIN_USER, NEW_PASS))
         ev(ws, "Array.from(document.querySelectorAll('.login-card button')).find(b=>b.textContent.includes('登录')).click()")
-        assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')", timeout=15), "新密码登录成功(进入本地订阅)")
+        assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')", timeout=15), "新密码登录成功(进入本地订阅)")
         # 页面登录已写入新会话 → 同步到全局 SESSION_TOKEN,供 API 恢复用
         tok = ev(ws, "localStorage.getItem('submerge_admin_session')")
         assert_true(bool(tok), "新会话 token 已写入 localStorage")
@@ -440,14 +455,41 @@ def scenario_config_password(ws):
         if not restored:
             print("WARN: 密码恢复失败(新旧密码均无法登录),后续场景可能受影响")
 
+def scenario_clash_config(ws):
+    """Clash 配置页：编辑模板 → 保存 → 刷新回读 → 恢复默认模板。
+
+    收尾把模板里的 ui-check 注释全部移除并保存（split/join 而非 replace 单次，
+    跨次运行崩溃残留也能自愈），避免毒害后续订阅输出。"""
+    login(ws)
+    click_nav_exact(ws, "Clash 配置")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='Clash 配置').classList.contains('active')"), "Clash 配置就绪")
+    assert_true(wait_until(ws, "!!document.querySelector('textarea.clash-template')"), "模板编辑区出现")
+    # 草稿初始化来自缓存单元（挂载 effect 填充），用 wait_until 轮询避免渲染时序竞争
+    assert_true(wait_until(ws, "document.querySelector('textarea.clash-template')?.value.includes('mixed-port') === true"), "草稿初始化为默认模板")
+    # 编辑 + 保存（textarea 用原型 setter 赋值 + input 事件，走 dioxus 受控组件路径）
+    ev(ws, "(()=>{const t=document.querySelector('textarea.clash-template');const s=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;s.call(t, t.value + '\\n# ui-check 注释\\n');t.dispatchEvent(new Event('input',{bubbles:true}));})()")
+    ev(ws, "Array.from(document.querySelectorAll('.page-head button')).find(b=>b.textContent.trim()==='保存').click()")
+    assert_true(wait_until(ws, "document.body.innerText.includes('已保存')", timeout=10), "保存成功 toast")
+    # 刷新页面（默认回 tab=0 本地订阅）→ 重新点开 Clash 配置 → 保存内容从服务端回读
+    cmd(ws, "Page.reload")
+    time.sleep(2.5)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='Clash 配置')!==undefined", timeout=15), "刷新后导航就绪")
+    click_nav_exact(ws, "Clash 配置")
+    assert_true(wait_until(ws, "!!document.querySelector('textarea.clash-template')"), "刷新后配置页就绪")
+    assert_true(wait_until(ws, "document.querySelector('textarea.clash-template')?.value.includes('# ui-check 注释') === true", timeout=10), "保存内容回读")
+    # 恢复默认模板（移除全部 ui-check 注释，幂等）
+    ev(ws, "(()=>{const t=document.querySelector('textarea.clash-template');const s=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;s.call(t, t.value.split('\\n# ui-check 注释\\n').join(''));t.dispatchEvent(new Event('input',{bubbles:true}));})()")
+    ev(ws, "Array.from(document.querySelectorAll('.page-head button')).find(b=>b.textContent.trim()==='保存').click()")
+    assert_true(wait_until(ws, "document.body.innerText.includes('已保存')", timeout=10), "恢复保存")
+
 def scenario_combineds(ws):
     """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
     cleanup_combined("c-test")
     seed_sources(ws, 1)
     login(ws)
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('本地订阅')).classList.contains('active')"), "本地订阅就绪")
-    click_nav(ws, "组合订阅")
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('组合订阅')).classList.contains('active')"), "组合订阅就绪")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
+    click_nav_exact(ws, "组合订阅")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='组合订阅').classList.contains('active')"), "组合订阅就绪")
     ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('新建组合')).click()")
     time.sleep(0.5)
     ev(ws, "(()=>{const el=document.querySelector('.modal input');const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;s.call(el,'c-test');el.dispatchEvent(new Event('input',{bubbles:true}));})()")
@@ -463,6 +505,7 @@ def main():
                  "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
                  "refresh_failure": scenario_refresh_failure,
                  "config_password": scenario_config_password,
+                 "clash_config": scenario_clash_config,
                  "first_load_failure": scenario_first_load_failure}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)

@@ -36,7 +36,7 @@
   - `pub fn serialize_clash_subscription(template: &str, provider_key: &str, provider_url: &str) -> Result<String, SerializeError>`
   - `SerializeError::InvalidTemplate(String)` 新变体
 
-- [ ] **Step 1: 写失败测试（tests/formats.rs 追加）**
+- [x] **Step 1: 写失败测试（tests/formats.rs 追加）**
 
 ```rust
 use proxy_core::formats::clash::serialize_clash_subscription;
@@ -87,12 +87,12 @@ fn clash_subscription_invalid_template() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cargo test -p proxy-core --test formats clash_subscription`
 Expected: 编译错误（函数不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 error.rs 加变体：
 
@@ -163,12 +163,12 @@ pub fn serialize_clash_subscription(
 
 注意：serde_json 的 `json!` 宏在 proxy-core 已有依赖（serde_json = "1"）。`serde_yaml_ng::to_value(impl Serialize)` 接受 serde_json::Value。若 `serde_yaml_ng::Value::String` 的 as_mapping 等 API 细节有出入，按实际 API 适配（serde_yaml_ng 的 Value 与 serde_json::Value 结构类似：as_mapping_mut 存在）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cargo test -p proxy-core --test formats clash_subscription`
 Expected: 全 PASS
 
-- [ ] **Step 5: 门禁 + commit**
+- [x] **Step 5: 门禁 + commit**
 
 Run: `cargo fmt --all && cargo clippy --workspace && cargo test --workspace`
 
@@ -195,7 +195,7 @@ git commit -m "feat(proxy-core): serialize_clash_subscription 订阅组模式序
   - `default_template() -> String`（pub(crate)，clash_config.rs）
   - subscribe clash 分支输出订阅组模式；Host 缺失 400；X-Forwarded-Proto 支持
 
-- [ ] **Step 1: db.rs 恢复 settings 读写**
+- [x] **Step 1: db.rs 恢复 settings 读写**
 
 ```rust
 pub async fn get_setting(pool: &SqlitePool, key: &str) -> Result<Option<String>> {
@@ -220,7 +220,7 @@ pub async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> Result<()
 
 （`use sqlx::Row;` db.rs 已有。）
 
-- [ ] **Step 2: 写失败测试（api_test.rs 追加）**
+- [x] **Step 2: 写失败测试（api_test.rs 追加）**
 
 ```rust
 #[tokio::test]
@@ -316,12 +316,12 @@ async fn subscribe_clash_without_host_returns_400() {
 
 （`http`/`http_raw` 带固定 host 的请求会覆盖 axum 自动 Host——注意现有 `http` helper 未设 host，axum 的 oneshot 对无 Host 的请求…… axum 0.8 中 Host header 缺失时 `headers.get(HOST)` 返回 None → 400。但现有 subscribe 测试（subscribe_returns_subscription 等）用旧 http helper 无 Host——clash 分支改造后这些测试会 400！**必须检查**：既有测试 `subscribe_returns_subscription` 请求 /subscribe/merged?format=clash 无 Host → 改造后 400 → 测试失败。处理：既有测试的 http helper 统一加默认 Host（`"example.com"`），或仅 clash 相关测试用 http_raw。**方案：在 http helper 里统一加 `.header("host", "example.com")`**——对所有请求无害（axum 不校验 Host 内容），并让既有 clash 订阅测试继续工作。v2ray/singbox 测试不受 Host 影响。）
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `cargo test --test api_test clash_config_get_put_and_subscription_output`
 Expected: FAIL（404 路由未注册 / clash 输出仍是解析节点）
 
-- [ ] **Step 4: 实现 clash_config.rs + 挂载**
+- [x] **Step 4: 实现 clash_config.rs + 挂载**
 
 ```rust
 // crates/server/src/routes/clash_config.rs
@@ -381,7 +381,7 @@ async fn put_config(
 
 mod.rs 挂载：`pub mod clash_config;` + `.merge(clash_config::router())`。
 
-- [ ] **Step 5: subscribe.rs clash 分支改造**
+- [x] **Step 5: subscribe.rs clash 分支改造**
 
 ```rust
 // subscribe_handler 中 format 解析后：
@@ -421,16 +421,16 @@ if format == OutputFormat::Clash {
 
 注意：subscribe_handler 需要 headers 参数（现状没有——加 `headers: HeaderMap` 提取器）。原 handler 签名：`(State, Path, Query)`。加 `headers: axum::http::HeaderMap`。
 
-- [ ] **Step 6: 既有测试适配（http helper 加默认 Host）**
+- [x] **Step 6: 既有测试适配（http helper 加默认 Host）**
 
 api_test.rs 的 `http` helper 与 `http_raw` 统一加 `.header("host", "example.com")`（既有 clash 订阅测试 subscribe_returns_subscription 等依赖——否则 Host 缺失 400 会破坏它们）。`setup_admin` 内部调用不受影响。
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: `cargo test --test api_test clash_config_get_put_and_subscription_output subscribe_clash_without_host_returns_400 subscribe_returns_subscription`
 Expected: 全 PASS
 
-- [ ] **Step 8: 门禁 + commit**
+- [x] **Step 8: 门禁 + commit**
 
 Run: `cargo fmt --all && cargo clippy --workspace && cargo test --workspace`
 
@@ -455,7 +455,7 @@ git commit -m "feat(routes): clash 输出改订阅组模式（模板 + providers
 - Consumes: Task 2 的 `/admin/clash-config` API
 - Produces: 叶子 tab=3「Clash 配置」页面（textarea 编辑 + 保存）；DataStore.ClashConfig 单元；required_units: 3→[ClashConfig]、4→[Config]
 
-- [ ] **Step 1: data.rs 加单元**
+- [x] **Step 1: data.rs 加单元**
 
 ```rust
 // UnitKey 加 ClashConfig 变体
@@ -486,7 +486,7 @@ pub struct ClashConfigDto {
 
 （web-core 在 workspace 内——dto 加 struct + 解析测试随 cargo test 覆盖）
 
-- [ ] **Step 2: clash_config.rs 页面**
+- [x] **Step 2: clash_config.rs 页面**
 
 ```rust
 // crates/server/web/src/components/clash_config.rs
@@ -572,7 +572,7 @@ pub fn ClashConfig(token: Signal<Option<String>>) -> Element {
 }
 ```
 
-- [ ] **Step 3: main.rs 导航 tab 重排 + icon + mod.rs + CSS**
+- [x] **Step 3: main.rs 导航 tab 重排 + icon + mod.rs + CSS**
 
 main.rs：
 - 叶子索引 3 = ClashConfig 叶子（NavLeaf name="clash" label="Clash 配置"），4 = 配置
@@ -611,7 +611,7 @@ index.html（表单段追加）：
 textarea.clash-template:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 ```
 
-- [ ] **Step 4: 构建验证 + 门禁 + commit**
+- [x] **Step 4: 构建验证 + 门禁 + commit**
 
 Run: `cd crates/server/web && dx build --web --release --debug-symbols false`（0 警告）→ `cargo fmt --all && cargo clippy --workspace && cargo test --workspace`（web-core dto 新测试随跑）
 
@@ -632,7 +632,7 @@ git commit -m "feat(web): Clash 配置页（模板编辑）+ 导航新增叶子 
 - Consumes: Task 1-3 全部
 - Produces: ui-check 既有场景在新导航下全 PASS + 新增 clash_config 场景；文档同步
 
-- [ ] **Step 1: 修复「配置」文本匹配冲突（关键跨任务坑）**
+- [x] **Step 1: 修复「配置」文本匹配冲突（关键跨任务坑）**
 
 现状：ui-check 的 `nav_el`/`nav_loading`/`nav_active`/`click_nav` 用 `textContent.includes(label)` 匹配。新导航有「Clash 配置」与「配置」两个按钮——`includes('配置')` 会**先命中「Clash 配置」**（DOM 顺序 tab=3 在前）。既有场景（nav_preload 慢路径、config_password）点「配置」会点错。
 
@@ -683,7 +683,7 @@ def scenario_clash_config(ws):
 
 main() 的 scenarios dict 加 `"clash_config": scenario_clash_config`。场景顺序：clash_config 放在 config_password 之后（同域操作）。
 
-- [ ] **Step 2: 文档更新**
+- [x] **Step 2: 文档更新**
 
 README：
 - API 表加：
@@ -693,7 +693,7 @@ README：
 CLAUDE.md：
 - 架构节 server 行路由描述加 clash-config；web 行 DataStore「四单元」→「五单元」
 
-- [ ] **Step 3: 实跑验证 + 门禁 + commit**
+- [x] **Step 3: 实跑验证 + 门禁 + commit**
 
 Run: chrome-headless-shell（/opt 已装）+ 起 server → `python3 scripts/ui-check.py nav_preload` 与 `python3 scripts/ui-check.py clash_config` 与 `config_password`（导航改动回归）→ 全 PASS
 Run: `python3 -m py_compile scripts/ui-check.py` + `cargo fmt --all && cargo clippy --workspace && cargo test --workspace`
