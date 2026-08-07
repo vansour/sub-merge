@@ -1,6 +1,6 @@
 # sub-merge
 
-订阅链接聚合与转换工具：聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 / Sing-box JSON 三种格式。小圈子自用，token 鉴权。
+订阅链接聚合与转换工具：聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 / Sing-box JSON 三种格式。小圈子自用，用户名+密码鉴权。
 
 ## 功能
 
@@ -9,30 +9,20 @@
 - 11 种协议解析：ss、ssr、socks5、http、vmess、vless、trojan、hysteria、hysteria2、tuic、wireguard
 - 3 种输出格式：Clash / V2Ray / Sing-box
 - 输入支持：V2Ray base64 订阅、明文 URI 列表、Clash YAML（`proxies` 段）
-- 管理界面（WASM）：订阅源 CRUD、转换预览、订阅链接复制、token 轮换
+- 管理界面（WASM）：订阅源 CRUD、转换预览、订阅链接复制、账号管理（修改密码）
 - 多个组合订阅：每组合从源中勾选成员（多对多），独立命名订阅链接（/subscribe/{name}），组合订阅管理在侧边栏「组合订阅」页
 
 ## 快速开始
 
 ```bash
 # 依赖：Rust 1.97+、dx（dioxus-cli 0.8.0-alpha.1）
-make run          # 构建前端并启动（首次运行自动建库并生成 token）
+make run          # 构建前端并启动（首次运行登录页引导创建管理员）
 ```
 
-默认监听 `:8080`。管理 token 的获取方式：
+默认监听 `:8080`。
 
-```bash
-# 方式 1：首次启动日志直接可见（仅首次打印一次，重启不重复）
-docker compose up -d --build && docker compose logs | grep token
-
-# 方式 2：部署时用环境变量预设初始 admin token（可控可管理）
-SUB_MERGE_ADMIN_TOKEN=your-admin-token make run
-
-# 方式 3：查库（compose bind mount 场景）
-python3 -c "import sqlite3; db=sqlite3.connect('submerge-data/submerge.db'); [print(k,'=',v) for k,v in db.execute('SELECT key,value FROM settings')]"
-```
-
-浏览器打开 `http://<host>:8080`，输入管理 token 进入管理界面。
+首次访问浏览器打开 `http://<host>:8080`，登录页会引导创建管理员（用户名+密码）。
+创建完成后即可登录进入管理界面；之后重启不再出现创建表单。
 
 ## Docker 部署
 
@@ -59,9 +49,6 @@ docker compose up -d --build
 | TIMEOUT_SECS | 15 | 单源超时 |
 | MAX_NODES | 2000 | 节点总数上限 |
 | WEB_DIST | ./web/dist | 前端静态资源目录 |
-| SUB_MERGE_ADMIN_TOKEN | 随机生成 | 预设初始 admin token（仅首次初始化时生效） |
-
-预设 token 仅在数据库首次初始化时使用；已部署实例的 token 不受影响（settings 表已有值时不覆盖）。
 
 ## API
 
@@ -73,17 +60,21 @@ GET /subscribe/{name}?format=clash|v2ray|singbox
 
 `{name}` 为组合订阅名（在 `/admin/combineds` 中定义）；`format` 缺省为 `clash`，无鉴权。名字不匹配返回 404；组合无成员时输出空配置（200）；全部成员源失败时返回 502 并附错误明细。
 
-### 管理接口（`Authorization: Bearer <管理token>`）
+### 管理接口（`Authorization: Bearer <会话 token>`，登录后获得）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET | /admin/setup-status | 初始化状态（`needs_setup`） |
+| POST | /admin/setup | 首次创建管理员（仅未初始化时可用） |
+| POST | /admin/login | 登录，返回会话 token |
+| POST | /admin/logout | 注销当前会话（幂等，204） |
 | GET/POST | /admin/sources | 列表 / 添加订阅源（`kind`: `single` 单条节点 \| `remote` 远程订阅，缺省 remote） |
 | PUT/DELETE | /admin/sources/{id} | 更新（url/name/kind/enabled）/ 删除 |
 | POST | /admin/sources/{id}/refresh | 手动刷新单源 |
 | GET | /admin/preview | 转换结果预览（节点列表 + 源错误；`?combined=<name>` 按组合成员过滤） |
 | GET/POST | /admin/combineds | 组合订阅列表 / 创建（`source_ids` 成员源数组） |
 | PUT/DELETE | /admin/combineds/{id} | 更新（名字/成员全量替换）/ 删除 |
-| GET/PUT | /admin/config | 获取配置 / 轮换 admin token |
+| GET/PUT | /admin/config | 获取配置（用户名）/ 修改密码 |
 
 ### 注意：V2Ray 格式的节点覆盖
 
@@ -111,8 +102,8 @@ Dioxus Web (WASM) 管理界面 ──▶ axum Server（/subscribe/{name}、/admi
 ```
 
 - **proxy-core**：中间模型 `ProxyNode` 覆盖全部协议，各协议 parser/serializer 围绕模型转换，三种输出格式独立模块，可脱离服务独立测试
-- **server**：axum 路由、admin token 鉴权（恒定时间比较）、并发拉取（信号量限流）、SQLite 持久化、WASM 静态资源托管
-- **web**：Dioxus 0.8 (WASM) 管理界面，管理 token 存 localStorage
+- **server**：axum 路由、用户名+密码登录与会话 token 鉴权（argon2 哈希、sha256 会话查表）、并发拉取（信号量限流）、SQLite 持久化、WASM 静态资源托管
+- **web**：Dioxus 0.8 (WASM) 管理界面，会话 token 存 localStorage
 
 ## 测试
 

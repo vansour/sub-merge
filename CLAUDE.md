@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目
 
-sub-merge：订阅链接聚合与转换工具。聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 / Sing-box JSON 三种格式。小圈子自用，token 鉴权。
+sub-merge：订阅链接聚合与转换工具。聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 / Sing-box JSON 三种格式。小圈子自用，用户名+密码鉴权。
 
 ## 架构
 
@@ -51,7 +51,7 @@ cd crates/server/web && dx build --web --release --debug-symbols false   # 前�
 - release 构建必须带 `--debug-symbols false`：dx 0.8.0-alpha.1 的 `debug_symbols` CLI 默认 true，且在 build/web.rs 里**无条件覆盖** dx.toml 的 `[web.wasm_opt] debug` 键（配置键无效，仅 CLI 标志生效）。不带该标志时 dx 给 wasm-opt 传 `--debuginfo`，binaryen 127（dx 固定版本）解析 rustc 1.97 的新 DWARF 报 `compile unit size was incorrect` 并 SIGABRT——dx 会打印 ERROR 但仍继续完成构建（非致命），产物带 DWARF 且更大
 - **web-sys 非 Result 导入的 JS 调用会炸整页**：`Clipboard::write_text` 这类返回裸 `Promise` 的导入，底层 JS 抛异常（属性不存在/被拒）时 web-sys 不会转成 `Result`，异常穿透成 Rust panic，wasm32 panic=abort 直接整页失效（无任何报错提示）。实测：`navigator.clipboard` 在非安全上下文（http://局域网IP 访问）为 `undefined`，点击复制按钮即卡死。**调用可能 throw 的 JS API 前必须探测**——`copy_text` 用 `js_sys::Reflect::get(nav.as_ref(), "clipboard")` 守卫后返回 Err 走 toast
 
-## 环境变量与 token（详见 README.md）
+## 环境变量（详见 README.md）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -61,6 +61,5 @@ cd crates/server/web && dx build --web --release --debug-symbols false   # 前�
 | TIMEOUT_SECS | 15 | 单源超时 |
 | MAX_NODES | 2000 | 节点总数上限 |
 | WEB_DIST | ./web/dist | 前端静态资源目录（git-ignored symlink → dx 构建产物） |
-| SUB_MERGE_ADMIN_TOKEN | 随机生成 | 预设初始 admin token（仅首次初始化时生效，已部署实例不受影响） |
 
-首次启动日志打印一次随机 token（重启不重复）；部署时用上述 `SUB_MERGE_ADMIN_TOKEN` 预设。管理接口一律 `Authorization: Bearer <admin_token>`。
+管理接口一律 `Authorization: Bearer <会话 token>`（登录后获得）。

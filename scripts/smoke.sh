@@ -7,7 +7,7 @@
 #   2. server 以 WEB_DIST 指向 dist 启动（临时 DB、随机端口）
 #   3. curl 根路径（health）→ "sub-merge is running"
 #   4. curl 静态资源 index.html / wasm js / wasm binary → 200
-#   5. /admin/config（Bearer）→ 返回 admin_token
+#   5. 首次引导创建管理员 + login 拿会话 → /admin/config（Bearer）→ 返回用户名
 #   6. 加源 + 创建组合订阅勾选成员 → /subscribe/merged（无 token）输出节点
 #   7. 组合订阅名不匹配 → 404
 #   8. 未知 /admin/* → JSON 404（不回退 SPA）
@@ -118,17 +118,21 @@ step "5/9 管理接口 /admin/config"
 unauth_code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/admin/config")"
 [[ "$unauth_code" == "401" ]] || fail "无 token 访问 /admin/config 期望 401，实际 $unauth_code"
 
-# 从日志拿不到 token（debug 级别），直接查 DB 的 settings 表拿 admin token
-ADMIN_TOKEN="$(python3 - "$TMP_DIR/submerge-smoke.db" <<'PY'
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-print(db.execute("SELECT value FROM settings WHERE key='admin_token'").fetchone()[0])
-PY
-)"
-[[ -n "$ADMIN_TOKEN" ]] || fail "DB 中未生成 admin token"
+# 首次运行：引导创建管理员 → 登录拿会话
+setup_out="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/setup" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"smoke","password":"smoke-pass-12345","password_confirm":"smoke-pass-12345"}')"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["username"]=="smoke", d; print("setup OK")' <<<"$setup_out"
+
+login_out="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"smoke","password":"smoke-pass-12345"}')"
+ADMIN_TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$login_out")"
+[[ -n "$ADMIN_TOKEN" ]] || fail "login 未返回会话 token"
+
 cfg="$(curl -sf "http://127.0.0.1:$SERVER_PORT/admin/config" -H "Authorization: Bearer $ADMIN_TOKEN")"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["admin_token"]==sys.argv[1], "admin token 不匹配"; print("config OK")' <<<"$cfg" "$ADMIN_TOKEN"
-printf 'GET /admin/config（Bearer）→ 200 OK, token 一致\n'
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["username"]=="smoke", d; print("config OK")' <<<"$cfg"
+printf 'GET /admin/config（Bearer）→ 200 OK, 用户名一致\n'
 
 # ---- 6. 加源 + 组合订阅 → 组合订阅输出 ----
 step "6/9 加源与组合订阅 → /subscribe/{name}"

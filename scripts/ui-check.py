@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # 前端 UI 行为检查(CDP 驱动 headless chrome)。
-# 前置:1) server 运行在 :18080(SUB_MERGE_ADMIN_TOKEN=test-token 预设)
+# 前置:1) server 运行在 :18080(无需预设 token;脚本会自动完成首次创建管理员与登录)
 #       2) chrome-headless-shell --headless --no-sandbox --remote-debugging-port=9222 \
 #          --remote-allow-origins=* about:blank
 # 用法:python3 scripts/ui-check.py <scenario> [url]
@@ -9,6 +9,12 @@ import websocket
 
 URL = sys.argv[2] if len(sys.argv) > 2 else "http://127.0.0.1:18080"
 CDP = "http://127.0.0.1:9222"
+
+# 测试用管理员账号:首次运行经 /admin/setup 创建,后续场景经 /admin/login 拿会话。
+# 会话 token 存全局 SESSION_TOKEN,供 API 直调函数使用。
+ADMIN_USER = "ui"
+ADMIN_PASS = "ui-pass-12345"
+SESSION_TOKEN = None
 
 def http_json(path, method="GET"):
     req = urllib.request.Request(CDP + path, method=method)
@@ -38,14 +44,42 @@ def ev(ws, expr, timeout=6):
         # 超时/断连返回 None(假值):wait_until/assert_true 会自然 FAIL,不得返回真值。
         return None
 
+def api_login(username, password):
+    """urllib 直调 /admin/login,返回会话 token(失败抛异常)。"""
+    req = urllib.request.Request(URL + "/admin/login", method="POST",
+                                 data=json.dumps({"username": username, "password": password}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read())["token"]
+
+def ensure_session():
+    """API 层确保管理员存在并拿到会话 token(setup-status → 必要时 setup → login)。
+
+    只设置全局 SESSION_TOKEN,不触碰页面;seed/cleanup 等 API 直调函数在开头调用。
+    已有会话时直接复用(单场景进程内会话跨 API 调用有效,改密场景收尾会刷新)。"""
+    global SESSION_TOKEN
+    if SESSION_TOKEN:
+        return
+    with urllib.request.urlopen(URL + "/admin/setup-status", timeout=5) as r:
+        needs_setup = json.loads(r.read())["needs_setup"]
+    if needs_setup:
+        req = urllib.request.Request(URL + "/admin/setup", method="POST",
+                                     data=json.dumps({"username": ADMIN_USER, "password": ADMIN_PASS,
+                                                      "password_confirm": ADMIN_PASS}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    SESSION_TOKEN = api_login(ADMIN_USER, ADMIN_PASS)
+
 def login(ws):
+    """页面登录:API 层拿真实会话 token → 写入 localStorage(submerge_admin_session) → 刷新。"""
+    ensure_session()
     cmd(ws, "Page.enable"); cmd(ws, "Runtime.enable")
     time.sleep(2)
     for _ in range(20):
         if ev(ws, "document.readyState") == "complete":
             break
         time.sleep(0.5)
-    ev(ws, "localStorage.setItem('submerge_admin_token','test-token')")
+    ev(ws, "localStorage.setItem('submerge_admin_session','%s')" % SESSION_TOKEN)
     cmd(ws, "Page.reload")
     time.sleep(2.5)
 
@@ -76,39 +110,42 @@ def wait_until(ws, expr, timeout=20, interval=0.5):
     return ev(ws, expr)
 
 def seed_sources(ws, n):
-    """经 API 种 n 个 single 源(需 server 已运行、token=test-token)。"""
+    """经 API 种 n 个 single 源(需 server 已运行;会话经 ensure_session 自动获取)。"""
     import urllib.request as u
+    ensure_session()
     for i in range(n):
         req = u.Request(URL + "/admin/sources", method="POST",
                         data=json.dumps({"name": "s%d" % i,
                                          "url": "vless://e99a8e5a-6b2b-4a1d-9c5f-1a2b3c4d5e6f@1.2.3.%d:443#n%d" % (i + 1, i),
                                          "kind": "single"}).encode(),
-                        headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"})
+                        headers={"Authorization": "Bearer " + SESSION_TOKEN, "Content-Type": "application/json"})
         u.urlopen(req, timeout=5)
 
 def cleanup_source(name):
     """经 API 删除同名源(幂等)。sources_crud 每次运行新增 crud-test,
     尾部自清理,避免跨次运行累积(否则 DB 里同名源越来越多)。"""
     import urllib.request as u
-    req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer test-token"})
+    ensure_session()
+    req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer " + SESSION_TOKEN})
     with u.urlopen(req, timeout=5) as r:
         items = json.loads(r.read())
     for it in items:
         if it.get("name") == name:
             u.urlopen(u.Request(URL + "/admin/sources/%d" % it["id"], method="DELETE",
-                                headers={"Authorization": "Bearer test-token"}), timeout=5)
+                                headers={"Authorization": "Bearer " + SESSION_TOKEN}), timeout=5)
 
 def cleanup_combined(name):
     """经 API 删除同名组合(幂等)。combined_subs.name 有 UNIQUE 约束,
     场景重跑前须先清掉同名旧数据,否则保存会 400 失败。"""
     import urllib.request as u
-    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer test-token"})
+    ensure_session()
+    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer " + SESSION_TOKEN})
     with u.urlopen(req, timeout=5) as r:
         items = json.loads(r.read())
     for it in items:
         if it.get("name") == name:
             u.urlopen(u.Request(URL + "/admin/combineds/%d" % it["id"], method="DELETE",
-                                headers={"Authorization": "Bearer test-token"}), timeout=5)
+                                headers={"Authorization": "Bearer " + SESSION_TOKEN}), timeout=5)
 
 # 在新文档创建时注入(早于 app 脚本):MutationObserver 记录加载瞬态是否出现过。
 # 本机 /admin/preview 对 single 源即时返回(不实际拉取),loading 窗口仅 ~100ms,
@@ -162,15 +199,8 @@ def scenario_first_load_failure(ws):
     不会进入 CacheStatus::Error —— 拦截请求才能真实覆盖 Error 提交切换路径。"""
     cmd(ws, "Network.enable")
     cmd(ws, "Network.setBlockedURLs", {"urls": ["*admin/preview*"]})
-    cmd(ws, "Page.enable"); cmd(ws, "Runtime.enable")
-    time.sleep(2)
-    for _ in range(20):
-        if ev(ws, "document.readyState") == "complete":
-            break
-        time.sleep(0.5)
-    ev(ws, "localStorage.setItem('submerge_admin_token','test-token')")
-    cmd(ws, "Page.reload")
-    time.sleep(2.5)
+    # 登录走 API(setup-status/login 不在拦截范围),再注入会话刷新页面
+    login(ws)
     # 初始 tab=0(概览)需 sources+preview 两单元:sources 正常,preview 被拦截失败。
     # all_finished 对 Error 同样放行 → 必须仍提交切换。
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')", timeout=15), "首次加载失败仍提交切换(概览激活)")
@@ -204,21 +234,22 @@ def scenario_sources_crud(ws):
 def scenario_preview_filter(ws):
     """预览页:全部源视图来自缓存;过滤下拉走本地拉取。"""
     import urllib.request as u
+    ensure_session()
     # 全部源节点数随 DB 累积变化(seed 的 2 个 single 源各产出 1 节点),以 API 实时节点数为基准。
-    req = u.Request(URL + "/admin/preview", headers={"Authorization": "Bearer test-token"})
+    req = u.Request(URL + "/admin/preview", headers={"Authorization": "Bearer " + SESSION_TOKEN})
     with u.urlopen(req, timeout=5) as r:
         n0 = len(json.loads(r.read())["nodes"])
     # 确保 c-test 组合存在(combineds 场景会创建;缺失时经 API 补建,成员取首个源)
-    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer test-token"})
+    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer " + SESSION_TOKEN})
     with u.urlopen(req, timeout=5) as r:
         combos = json.loads(r.read())
     if not any(c.get("name") == "c-test" for c in combos):
-        req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer test-token"})
+        req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer " + SESSION_TOKEN})
         with u.urlopen(req, timeout=5) as r:
             first_id = json.loads(r.read())[0]["id"]
         req = u.Request(URL + "/admin/combineds", method="POST",
                         data=json.dumps({"name": "c-test", "source_ids": [first_id]}).encode(),
-                        headers={"Authorization": "Bearer test-token", "Content-Type": "application/json"})
+                        headers={"Authorization": "Bearer " + SESSION_TOKEN, "Content-Type": "application/json"})
         u.urlopen(req, timeout=5)
     seed_sources(ws, 2)
     login(ws)
@@ -233,7 +264,9 @@ def scenario_preview_filter(ws):
     assert_true(ev(ws, "document.querySelectorAll('.table-wrap tbody tr').length === 1"), "过滤视图只显示该组合成员")
 
 def find_server():
-    """定位 :18080 的 server 进程(Linux /proc 扫描,按 PORT=18080 + test-token 过滤,避免误伤其他 server)。"""
+    """定位 :18080 的 server 进程(Linux /proc 扫描,按 PORT=18080 过滤,避免误伤其他 server)。
+
+    鉴权已改为用户名+密码,不再需要预设 token 环境变量,故只按 PORT 过滤。"""
     import os
     hits = []
     for pid in os.listdir("/proc"):
@@ -244,7 +277,7 @@ def find_server():
                 env = f.read().decode("utf-8", "replace").split("\0")
         except OSError:
             continue
-        if "PORT=18080" not in env or "SUB_MERGE_ADMIN_TOKEN=test-token" not in env:
+        if "PORT=18080" not in env:
             continue
         try:
             exe = os.readlink("/proc/%s/exe" % pid)
@@ -327,64 +360,54 @@ def scenario_refresh_failure(ws):
     ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新')).click()")
     assert_true(wait_until(ws, "!document.querySelector('.error-text')", timeout=10), "重启后刷新恢复,错误消失")
 
-def restore_admin_token():
-    """轮换后把服务端 admin token 恢复为 test-token 并重启 server。
+def scenario_config_password(ws):
+    """配置页:账号卡片渲染用户名(缓存读取);改密后全部会话失效被踢回登录页;新密码重新登录。
 
-    轮换 API 只生成随机新 token（DB 落库 + 内存态更新），无法回写指定值；
-    场景末尾直写 DB 后重启（ensure_tokens 启动时重读 DB），后续场景才可继续用 test-token。"""
-    import sqlite3
-    hits = find_server()
-    assert_true(len(hits) > 0, "找到 :18080 server 进程")
-    pid, exe, cwd, env = hits[0]
-    envmap = dict(kv.split("=", 1) for kv in env if "=" in kv)
-    db = envmap.get("DATABASE_PATH") or os.path.join(cwd, "submerge.db")
-    conn = sqlite3.connect(db)
-    before = conn.total_changes
-    conn.execute("UPDATE settings SET value='test-token' WHERE key='admin_token'")
-    conn.commit()
-    assert conn.total_changes > before, "admin_token 更新影响 0 行(settings 键缺失?)"
-    conn.close()
-    # 重启使内存态生效（admin_token 在 Arc<RwLock>，只有启动时会从 DB 重读）
-    restart_server(pid, exe, cwd, envmap, "/tmp/submerge-server-restore.log")
-    assert_true(wait_healthz(), "server 重启成功(/healthz 200)，admin token 已恢复 test-token")
-
-def scenario_restore_token(ws):
-    """恢复命令:DB 直写 admin_token=test-token + 重启 server(/healthz 断言)。
-
-    用法:python3 scripts/ui-check.py restore_token —— 轮换/场景中断后的兜底恢复,
-    一条命令把 :18080 server 恢复为 test-token 可继续跑后续场景。"""
-    restore_admin_token()
-
-def scenario_config_rotate(ws):
-    """配置页:token 显示来自缓存;轮换后回写缓存 + 会话同步。"""
+    收尾(finally)用 API 把密码改回 ui-pass-12345 并刷新 SESSION_TOKEN,
+    使后续场景不受影响(改密后任一步断言失败也执行恢复)。"""
+    global SESSION_TOKEN
+    NEW_PASS = "ui-pass-67890"
     login(ws)
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
     click_nav(ws, "配置")
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('配置')).classList.contains('active')"), "配置就绪")
-    # 默认掩码显示是固定字符串(mask_token 恒为 ••••••••)，先点「显示」取明文，轮换后才有文本变化可断言
-    assert_true(wait_until(ws, "!!document.querySelector('.token-value')"), "token 卡片已渲染(缓存读取)")
-    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('显示')).click()")
-    time.sleep(0.3)
-    old = ev(ws, "document.querySelector('.token-value')?.textContent")
-    assert_true(bool(old), "读取到明文 token")
-    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('轮换')).click()")
-    time.sleep(0.5)
-    ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('轮换')).click()")
+    # 账号卡片:用户名来自 DataStore 缓存(GET /admin/config),渲染为 .token-row .token-value
+    assert_true(wait_until(ws, "document.querySelector('.card .token-value')?.textContent === '%s'" % ADMIN_USER), "账号卡片渲染用户名 ui")
+    # 三个密码输入按渲染顺序:当前密码/新密码/确认新密码
+    ev(ws, "(()=>{const ins=document.querySelectorAll('.card input');ins[0].value='%s';ins[0].dispatchEvent(new Event('input',{bubbles:true}));ins[1].value='%s';ins[1].dispatchEvent(new Event('input',{bubbles:true}));ins[2].value='%s';ins[2].dispatchEvent(new Event('input',{bubbles:true}));})()" % (ADMIN_PASS, NEW_PASS, NEW_PASS))
+    ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('修改密码')).click()")
     try:
-        assert_true(wait_until(ws, "document.querySelector('.token-value')?.textContent !== '%s'" % old), "轮换后 token 显示已更新(缓存回写)")
-        # 服务端已轮换:旧 token 立即失效(API 直查 401)
-        import urllib.request as u
-        rejected = False
-        try:
-            req = u.Request(URL + "/admin/config", headers={"Authorization": "Bearer " + old})
-            u.urlopen(req, timeout=5)
-        except Exception as e:
-            rejected = getattr(e, "code", None) == 401
-        assert_true(rejected, "旧 token 已失效(API 401)")
+        # 改密成功后服务端使全部会话失效,本地清除会话 → 回登录页
+        assert_true(wait_until(ws, "!!document.querySelector('.login-card')", timeout=10), "改密后被踢回登录页")
+        # 登录页探测 setup 状态后出现登录表单:用新密码走页面表单重新登录(全链路)
+        assert_true(wait_until(ws, "!!Array.from(document.querySelectorAll('.login-card button')).find(b=>b.textContent.includes('登录'))", timeout=10), "登录页就绪(显示登录表单)")
+        ev(ws, "(()=>{const ins=document.querySelectorAll('.login-card input');ins[0].value='%s';ins[0].dispatchEvent(new Event('input',{bubbles:true}));ins[1].value='%s';ins[1].dispatchEvent(new Event('input',{bubbles:true}));})()" % (ADMIN_USER, NEW_PASS))
+        ev(ws, "Array.from(document.querySelectorAll('.login-card button')).find(b=>b.textContent.includes('登录')).click()")
+        assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')", timeout=15), "新密码登录成功(进入概览)")
+        # 页面登录已写入新会话 → 同步到全局 SESSION_TOKEN,供 API 恢复用
+        tok = ev(ws, "localStorage.getItem('submerge_admin_session')")
+        assert_true(bool(tok), "新会话 token 已写入 localStorage")
+        SESSION_TOKEN = tok
     finally:
-        # 恢复 test-token,使后续场景不受轮换影响。
-        # 置于 finally:轮换后任一步断言失败也执行,不留随机 token 毒害后续场景。
-        restore_admin_token()
+        # 恢复:密码可能已改为 NEW_PASS(改密成功)也可能未改(断言中途失败),两种情况都覆盖;
+        # 改回 ADMIN_PASS 后重新登录刷新 SESSION_TOKEN,不留毒害后续场景。
+        import urllib.request as u
+        restored = False
+        for cand, is_new in ((ADMIN_PASS, False), (NEW_PASS, True)):
+            try:
+                tok = api_login(ADMIN_USER, cand)
+            except Exception:
+                continue
+            if is_new:
+                req = u.Request(URL + "/admin/config", method="PUT",
+                                data=json.dumps({"change_password": {"old": cand, "new": ADMIN_PASS}}).encode(),
+                                headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+                u.urlopen(req, timeout=5)
+            SESSION_TOKEN = api_login(ADMIN_USER, ADMIN_PASS)
+            restored = True
+            break
+        if not restored:
+            print("WARN: 密码恢复失败(新旧密码均无法登录),后续场景可能受影响")
 
 def scenario_combineds(ws):
     """组合订阅:新建 → 列表出现;保存后缓存 refresh 回写。"""
@@ -408,9 +431,8 @@ def main():
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
                  "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
                  "refresh_failure": scenario_refresh_failure,
-                 "config_rotate": scenario_config_rotate,
-                 "first_load_failure": scenario_first_load_failure,
-                 "restore_token": scenario_restore_token}
+                 "config_password": scenario_config_password,
+                 "first_load_failure": scenario_first_load_failure}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
