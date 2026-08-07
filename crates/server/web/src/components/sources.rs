@@ -1,17 +1,16 @@
 // crates/server/web/src/components/sources.rs
-// Task 3：订阅源 CRUD + 刷新。与后端 /admin/sources 交互。
+// 订阅源 CRUD + 刷新：数据读 DataStore 缓存（MainShell 预载），CRUD 成功后 refresh 回写。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
-use crate::components::icon::{icon, Spinner};
-use crate::components::toast::{push_toast, use_toast, ToastKind};
-use crate::data::fetch_sources;
+use crate::components::icon::{Spinner, icon};
+use crate::components::toast::{ToastKind, push_toast, use_toast};
+use crate::data::{DataStore, UnitKey};
 use dioxus::prelude::*;
-use submerge_web_core::dto::SourceDto;
 use submerge_web_core::fmt::kind_label;
 
 #[component]
 pub fn Sources(token: Signal<Option<String>>) -> Element {
-    let sources = use_signal(Vec::<SourceDto>::new);
+    let data = use_context::<DataStore>();
     let mut error = use_signal(String::new);
     let mut new_url = use_signal(String::new);
     let mut new_name = use_signal(String::new);
@@ -22,18 +21,9 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     let mut pending_id = use_signal(|| None::<i64>);
     let toasts = use_toast();
 
-    // 初次挂载加载一次。
-    use_future(move || {
-        let token = token.read().clone();
-        let mut sources = sources;
-        let mut error = error;
-        async move {
-            match fetch_sources(token.as_deref()).await {
-                Ok(list) => sources.set(list),
-                Err(e) => error.set(e.to_string()),
-            }
-        }
-    });
+    // 数据来自 DataStore 缓存（MainShell 预载）；CRUD 成功后 data.refresh 回写。
+    let sources_state = data.sources.read().clone();
+    let source_list = sources_state.data.unwrap_or_default();
 
     let add = move |_| {
         let url = new_url.read().clone();
@@ -45,7 +35,6 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         }
         let token = token.read().clone();
         let body = serde_json::json!({ "url": url, "name": name, "kind": kind }).to_string();
-        let mut sources = sources.clone();
         let mut new_url = new_url.clone();
         let mut new_name = new_name.clone();
         let mut error = error.clone();
@@ -55,16 +44,11 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         spawn(async move {
             match request("POST", "/admin/sources", Some(body), token.as_deref()).await {
                 Ok(_) => {
-                    match fetch_sources(token.as_deref()).await {
-                        Ok(list) => {
-                            sources.set(list);
-                            new_url.set(String::new());
-                            new_name.set(String::new());
-                            error.set(String::new());
-                            push_toast(toasts, ToastKind::Success, "订阅源已添加");
-                        }
-                        Err(e) => error.set(e.to_string()),
-                    }
+                    data.refresh(UnitKey::Sources);
+                    new_url.set(String::new());
+                    new_name.set(String::new());
+                    error.set(String::new());
+                    push_toast(toasts, ToastKind::Success, "订阅源已添加");
                 }
                 Err(e) => error.set(format!("添加失败: {e}")),
             }
@@ -75,19 +59,23 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     let toggle = move |id: i64, enabled: bool| {
         let token = token.read().clone();
         let body = serde_json::json!({ "enabled": !enabled }).to_string();
-        let mut sources = sources.clone();
-        let mut error = error.clone();
         let toasts = toasts.clone();
         spawn(async move {
-            match request("PUT", &format!("/admin/sources/{id}"), Some(body), token.as_deref()).await {
+            match request(
+                "PUT",
+                &format!("/admin/sources/{id}"),
+                Some(body),
+                token.as_deref(),
+            )
+            .await
+            {
                 Ok(_) => {
-                    match fetch_sources(token.as_deref()).await {
-                        Ok(list) => {
-                            sources.set(list);
-                            push_toast(toasts, ToastKind::Info, if enabled { "已停用" } else { "已启用" });
-                        }
-                        Err(e) => error.set(e.to_string()),
-                    }
+                    data.refresh(UnitKey::Sources);
+                    push_toast(
+                        toasts,
+                        ToastKind::Info,
+                        if enabled { "已停用" } else { "已启用" },
+                    );
                 }
                 Err(e) => push_toast(toasts, ToastKind::Error, format!("操作失败: {e}")),
             }
@@ -103,18 +91,36 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         let mut refreshing = refreshing.clone();
         let toasts = toasts.clone();
         spawn(async move {
-            match request("POST", &format!("/admin/sources/{id}/refresh"), None, token.as_deref()).await {
+            match request(
+                "POST",
+                &format!("/admin/sources/{id}/refresh"),
+                None,
+                token.as_deref(),
+            )
+            .await
+            {
                 Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
                     Ok(v) => {
                         let name = v.get("source").and_then(|s| s.as_str()).unwrap_or("该源");
                         match v.get("ok").and_then(|o| o.as_bool()) {
                             Some(true) => {
                                 let n = v.get("node_count").and_then(|c| c.as_u64()).unwrap_or(0);
-                                push_toast(toasts, ToastKind::Success, format!("{} 已刷新：{} 个节点", name, n));
+                                push_toast(
+                                    toasts,
+                                    ToastKind::Success,
+                                    format!("{} 已刷新：{} 个节点", name, n),
+                                );
                             }
                             _ => {
-                                let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("未知错误");
-                                push_toast(toasts, ToastKind::Error, format!("{} 刷新失败：{}", name, reason));
+                                let reason = v
+                                    .get("reason")
+                                    .and_then(|r| r.as_str())
+                                    .unwrap_or("未知错误");
+                                push_toast(
+                                    toasts,
+                                    ToastKind::Error,
+                                    format!("{} 刷新失败：{}", name, reason),
+                                );
                             }
                         }
                     }
@@ -126,13 +132,8 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         });
     };
 
-    let mut ask_delete = move |id: i64| {
-        let name = sources
-            .read()
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| s.name.clone())
-            .unwrap_or_default();
+    // 名字由行渲染处传入（ask_delete 仅捕获 Copy 信号，跨行内 move 闭包可复制）。
+    let mut ask_delete = move |id: i64, name: String| {
         pending_id.set(Some(id));
         confirm.set(ConfirmState {
             open: true,
@@ -143,24 +144,24 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         });
     };
 
-    // 确认删除：关闭弹窗 → 执行 DELETE → 重新加载列表。
+    // 确认删除：关闭弹窗 → 执行 DELETE → refresh 回写缓存。
     let on_confirm_delete = use_callback(move |_: ()| {
         confirm.set(ConfirmState::default());
         if let Some(id) = pending_id() {
             let token = token.read().clone();
-            let mut sources = sources.clone();
-            let mut error = error.clone();
             let toasts = toasts.clone();
             spawn(async move {
-                match request("DELETE", &format!("/admin/sources/{id}"), None, token.as_deref()).await {
+                match request(
+                    "DELETE",
+                    &format!("/admin/sources/{id}"),
+                    None,
+                    token.as_deref(),
+                )
+                .await
+                {
                     Ok(_) => {
-                        match fetch_sources(token.as_deref()).await {
-                            Ok(list) => {
-                                sources.set(list);
-                                push_toast(toasts, ToastKind::Success, "已删除");
-                            }
-                            Err(e) => error.set(e.to_string()),
-                        }
+                        data.refresh(UnitKey::Sources);
+                        push_toast(toasts, ToastKind::Success, "已删除");
                     }
                     Err(e) => push_toast(toasts, ToastKind::Error, format!("删除失败: {e}")),
                 }
@@ -169,8 +170,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     });
 
     // 行预渲染成 owned Element（沿用项目既有模式，避免 E0716 借用问题）。
-    let rows: Vec<Element> = sources
-        .read()
+    let rows: Vec<Element> = source_list
         .iter()
         .map(|s| {
             let id = s.id;
@@ -207,7 +207,7 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                                 }
                                 "刷新"
                             }
-                            button { class: "btn btn-danger btn-sm", onclick: move |_| ask_delete(id),
+                            button { class: "btn btn-danger btn-sm", onclick: move |_| ask_delete(id, name.clone()),
                                 {icon("trash", 13)}
                                 "删除"
                             }
@@ -218,13 +218,18 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
         })
         .collect();
 
-    let error_for_render = error.clone();
+    // 表单错误优先展示；无表单错误时展示缓存加载错误。
+    let page_error = if error.read().is_empty() {
+        sources_state.error.clone()
+    } else {
+        error.read().clone()
+    };
     rsx! {
         div { class: "page-head",
             h1 { class: "page-title", "订阅源" }
         }
-        if !error_for_render.read().is_empty() {
-            p { class: "error-text", "{error_for_render}" }
+        if !page_error.is_empty() {
+            p { class: "error-text", "{page_error}" }
         }
         div { class: "card",
             h2 { class: "card-title", "添加订阅源" }

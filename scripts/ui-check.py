@@ -117,10 +117,30 @@ def scenario_nav_preload(ws):
     assert_true(nav_active(ws, "概览"), "概览回访秒开")
     assert_true(not nav_loading(ws, "概览"), "概览回访无转圈")
 
+def scenario_sources_crud(ws):
+    """订阅源页添加源 → 切概览 → 统计同步(缓存回写)。"""
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('概览')).classList.contains('active')"), "概览就绪")
+    # 记录添加前的源总数:DB 会跨场景累积(seed/重复运行),断言用 N+1 而非写死。
+    assert_true(wait_until(ws, "!!document.querySelector('.stat-value')"), "概览统计已渲染")
+    n0 = ev(ws, "parseInt(document.querySelector('.stat-value')?.textContent ?? '0', 10)")
+    assert_true(isinstance(n0, int), "读取到添加前源总数")
+    click_nav(ws, "订阅源")
+    time.sleep(0.5)
+    # 添加表单:kind 下拉 + URL + 名称 两个 input + 添加按钮(以实际 DOM 为准,先打印结构)
+    print(ev(ws, "document.querySelector('.form-row')?.innerText.slice(0,200)"))
+    ev(ws, "(()=>{const ins=document.querySelectorAll('.form-row input');ins[0].value='vless://e99a8e5a-6b2b-4a1d-9c5f-1a2b3c4d5e6f@9.9.9.9:443#crud-test';ins[0].dispatchEvent(new Event('input',{bubbles:true}));ins[1].value='crud-test';ins[1].dispatchEvent(new Event('input',{bubbles:true}));})()")
+    ev(ws, "Array.from(document.querySelectorAll('.form-row button')).find(b=>b.textContent.includes('添加')).click()")
+    time.sleep(0.8)
+    assert_true(wait_until(ws, "document.body.innerText.includes('crud-test')"), "添加后列表出现新源")
+    click_nav(ws, "概览")
+    time.sleep(0.3)
+    assert_true(ev(ws, "document.querySelector('.stat-value')?.textContent === '%d'" % (n0 + 1)), "概览源总数 +1(缓存回写)")
+
 def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
-    scenarios = {"nav_preload": scenario_nav_preload}
+    scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
