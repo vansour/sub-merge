@@ -106,30 +106,36 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
     // 注意：SQLite 的 ALTER TABLE ADD COLUMN 不允许非常量 DEFAULT（datetime('now')
     // 会被拒绝），故先用空串常量默认值加列，再回填 RFC3339 格式的当前时间——
     // 保持"旧会话获得全新 last_used_at、迁移后仍有效"的意图。
-    // 回填只在 ALTER 实际成功（旧库首次迁移）时执行：新库 CREATE TABLE 自带该列，
-    // ALTER 报 duplicate column → migrated=false → 跳过回填（新库无空值，正确）。
-    let mut migrated = false;
+    // 回填与规范化无条件执行（幂等：空表/已回填/无纳秒行时 0 行匹配，无害）：
+    // 1) 空值回填无条件跑——不再用 migrated 分支按 ALTER 是否成功决定是否回填，
+    //    消除「ALTER 成功但回填失败 → 重试时跳过回填」的撕裂窗口（重试路径靠
+    //    无条件 UPDATE 自愈）；新库（CREATE TABLE 自带列）空表回填 0 行，正确。
+    // 2) 既有纳秒行规范化到秒精度（2026-08-07T14:25:09.123Z → 2026-08-07T14:25:09Z）。
+    //    用 substr 纯字符串截断而非 strftime 重排：strftime 对带时区偏移的输入会
+    //    做 UTC 转换（+08:00 → 06:25:09Z），有隐式时区语义；substr 仅截取前 19 字符
+    //    并补 Z，纯词法操作无时区风险。LIKE '%.%' 只命中带小数的纳秒行，偏移行
+    //    （无小数）与已秒精度的行不被触碰。全库统一秒精度后字典序比较对齐
+    //    （±1s 窗口彻底消除）。
     if let Err(e) =
         sqlx::query("ALTER TABLE sessions ADD COLUMN last_used_at TEXT NOT NULL DEFAULT ''")
             .execute(&pool)
             .await
+        && !e.to_string().contains("duplicate column name")
     {
-        if !e.to_string().contains("duplicate column name") {
-            return Err(e.into());
-        }
-        // 列已存在：不执行回填（旧库迁移只发生一次）
-    } else {
-        migrated = true;
+        return Err(e.into());
     }
-    if migrated {
-        // 仅在本次 ALTER 实际成功（旧库首次迁移）时回填
-        sqlx::query(
-            "UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
-             WHERE last_used_at = ''",
-        )
-        .execute(&pool)
-        .await?;
-    }
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') \
+         WHERE last_used_at = ''",
+    )
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = substr(last_used_at, 1, 19) || 'Z' \
+         WHERE last_used_at LIKE '%.%'",
+    )
+    .execute(&pool)
+    .await?;
 
     Ok(pool)
 }
@@ -251,7 +257,11 @@ pub async fn get_username(pool: &SqlitePool) -> Result<Option<String>> {
 
 pub async fn create_session(pool: &SqlitePool) -> Result<String> {
     let token = gen_token();
-    let now = chrono::Utc::now().to_rfc3339();
+    // 写入秒精度：与迁移规范化/delete_expired_sessions cutoff 对齐，字典序比较无 ±1s 窗口
+    let now = chrono::Utc::now()
+        .with_nanosecond(0)
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339();
     sqlx::query("INSERT INTO sessions (token_hash, created_at, last_used_at) VALUES (?, ?, ?)")
         .bind(sha256_hex(&token))
         .bind(&now)
@@ -271,10 +281,12 @@ pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> 
         .await?;
     let Some(row) = row else { return Ok(false) };
     let last_used: String = row.get(0);
-    if ttl_days > 0 {
-        // i64 回绕加固：u64 超 i64 上界时按最大 TTL 处理（避免 `as i64` 负值回绕
-        // 导致会话立即全部过期）
-        let ttl = i64::try_from(ttl_days).unwrap_or(i64::MAX);
+    // 超 i64::MAX 的病态配置视为永不过期（跳过过期检查直接续期，不 panic 不误删）；
+    // 0 禁用过期。i64 转换失败时（u64::MAX 等）不能走 `unwrap_or(i64::MAX)`——
+    // chrono Duration::days(i64::MAX) 会溢出 panic。
+    if let Ok(ttl) = i64::try_from(ttl_days)
+        && ttl > 0
+    {
         let expired = match chrono::DateTime::parse_from_rfc3339(&last_used) {
             Ok(last) => last + chrono::Duration::days(ttl) < chrono::Utc::now(),
             Err(_) => true, // 无法解析视为过期（含旧格式空串）
@@ -287,8 +299,11 @@ pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> 
             return Ok(false);
         }
     }
-    // 滑动续期
-    let now = chrono::Utc::now().to_rfc3339();
+    // 滑动续期（写入秒精度）
+    let now = chrono::Utc::now()
+        .with_nanosecond(0)
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339();
     sqlx::query("UPDATE sessions SET last_used_at = ? WHERE token_hash = ?")
         .bind(&now)
         .bind(&hash)
@@ -297,14 +312,17 @@ pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> 
     Ok(true)
 }
 
-/// 启动清理：删除所有过期会话（ttl_days == 0 时 no-op）。
+/// 启动清理：删除所有过期会话（ttl_days == 0 或超 i64::MAX 的病态配置时 no-op，
+/// 后者视为永不过期，不 panic 不误删）。
 pub async fn delete_expired_sessions(pool: &SqlitePool, ttl_days: u64) -> Result<()> {
-    if ttl_days == 0 {
+    let Ok(ttl) = i64::try_from(ttl_days) else {
+        return Ok(()); // 病态配置视为永不过期，无清理
+    };
+    if ttl == 0 {
         return Ok(());
     }
-    // i64 回绕加固同上；cutoff 截断到秒精度，与迁移回填/存储格式对齐（RFC3339 秒级），
+    // cutoff 截断到秒精度，与迁移回填/存储格式对齐（RFC3339 秒级），
     // 避免纳秒级 now 与秒级 last_used_at 字典序比较产生 1 秒窗口误删
-    let ttl = i64::try_from(ttl_days).unwrap_or(i64::MAX);
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(ttl))
         .with_nanosecond(0) // 截断到秒精度，与迁移回填/存储格式对齐
         .unwrap_or_else(chrono::Utc::now)

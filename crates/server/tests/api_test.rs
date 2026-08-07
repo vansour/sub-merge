@@ -96,6 +96,29 @@ async fn setup_admin(app: &axum::Router) -> String {
     v["token"].as_str().unwrap().to_string()
 }
 
+#[test]
+fn parse_bearer_three_states() {
+    use axum::http::HeaderMap;
+    use axum::http::header::{AUTHORIZATION, HeaderValue};
+
+    let no_header = HeaderMap::new();
+    assert_eq!(
+        server::auth::parse_bearer(&no_header),
+        Err("missing authorization header")
+    );
+
+    let mut wrong_scheme = HeaderMap::new();
+    wrong_scheme.insert(AUTHORIZATION, HeaderValue::from_static("Basic abc"));
+    assert_eq!(
+        server::auth::parse_bearer(&wrong_scheme),
+        Err("expected Bearer token")
+    );
+
+    let mut ok = HeaderMap::new();
+    ok.insert(AUTHORIZATION, HeaderValue::from_static("Bearer tok123"));
+    assert_eq!(server::auth::parse_bearer(&ok), Ok("tok123"));
+}
+
 #[tokio::test]
 async fn unknown_route_returns_404() {
     let tmp = fresh_tmp("router");
@@ -1869,6 +1892,41 @@ async fn user_and_session_db_functions() {
     assert!(
         server::db::validate_session(&pool, &t5, 0).await.unwrap(),
         "ttl=0 禁用过期"
+    );
+
+    // 超大 TTL（u64 超 i64::MAX）：不 panic、不过期（永不过期语义）
+    let t6 = server::db::create_session(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = datetime('now', '-100 days') WHERE token_hash = ?",
+    )
+    .bind(sha256_hex_manual(&t6))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        server::db::validate_session(&pool, &t6, u64::MAX)
+            .await
+            .unwrap(),
+        "ttl 超 i64::MAX 视为永不过期"
+    );
+    assert!(
+        server::db::delete_expired_sessions(&pool, u64::MAX)
+            .await
+            .is_ok(),
+        "超限 ttl 清理 no-op 不 panic"
+    );
+
+    // 写入秒精度（无纳秒小数）：新会话 last_used_at 为 'YYYY-MM-DDTHH:MM:SSZ' 形态
+    let t7 = server::db::create_session(&pool).await.unwrap();
+    let stored: String =
+        sqlx::query_scalar("SELECT last_used_at FROM sessions WHERE token_hash = ?")
+            .bind(sha256_hex_manual(&t7))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        !stored.contains('.'),
+        "session last_used_at must be second precision: {stored}"
     );
 
     // update_password 对不存在用户必须报错（不再静默 no-op）
