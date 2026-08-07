@@ -1,6 +1,6 @@
 [package]
 name = "submerge-web"
-version = "0.1.0"
+version = "0.0.1"
 # 独立于 workspace：web 是 WASM 构建目标，不加入根 workspace members，
 # 避免 dx build 与 cargo build --workspace 冲突。用字面 edition 而非 workspace 继承。
 # 空的 [workspace] 表让本 package 从父目录 workspace 中 opt out

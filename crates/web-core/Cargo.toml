@@ -1,6 +1,6 @@
 [package]
 name = "submerge-web-core"
-version = "0.1.0"
+version = "0.0.1"
 # 前端纯逻辑库：无 dioxus/web-sys 依赖，host 原生可测。
 # 加入根 workspace members，使 cargo test --workspace 自动覆盖前端逻辑。
 edition.workspace = true

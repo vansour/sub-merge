@@ -173,7 +173,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                     NavLeaf { name: "config", label: "配置", active: *tab.read() == 3, loading: *pending.read() == Some(3), onnav: move |_| go(3) }
                 }
                 div { class: "sidebar-footer",
-                    span { class: "sidebar-version", "v0.1.0" }
+                    span { class: "sidebar-version", "v0.0.1" }
                     button { class: "btn btn-ghost btn-sm", onclick: move |_| {
                         let t = token.read().clone();
                         let mut token = token.clone();

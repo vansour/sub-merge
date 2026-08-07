@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "proxy-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "base64 0.23.1",
  "percent-encoding",
@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2343,7 +2343,7 @@ dependencies = [
 
 [[package]]
 name = "submerge-web-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
