@@ -229,39 +229,3 @@ pub async fn delete_all_sessions(pool: &SqlitePool) -> Result<()> {
     sqlx::query("DELETE FROM sessions").execute(pool).await?;
     Ok(())
 }
-
-/// settings 表是否已初始化 admin token（用于判断是否首次启动、是否需要打印 token）。
-pub async fn tokens_initialized(pool: &SqlitePool) -> Result<bool> {
-    let row = sqlx::query("SELECT COUNT(*) AS n FROM settings WHERE key = 'admin_token'")
-        .fetch_one(pool)
-        .await?;
-    let n: i64 = row.get(0);
-    Ok(n >= 1)
-}
-
-/// 环境变量预设的初始 admin token（仅首次初始化时使用）。
-/// 已部署实例的 token 稳定：settings 表已有值时环境变量不生效。
-pub async fn ensure_tokens(pool: &SqlitePool) -> Result<String> {
-    ensure_tokens_with(pool, |key| {
-        std::env::var(format!("SUB_MERGE_{}", key.to_uppercase()))
-            .ok()
-            .filter(|s| !s.is_empty())
-    })
-    .await
-}
-
-/// 可注入 token 来源的 ensure_tokens（测试用；生产走环境变量预设或随机生成）。
-pub async fn ensure_tokens_with(
-    pool: &SqlitePool,
-    initial: impl Fn(&str) -> Option<String>,
-) -> Result<String> {
-    let admin = get_setting(pool, "admin_token").await?;
-    match admin {
-        Some(s) => Ok(s),
-        None => {
-            let t = initial("admin_token").unwrap_or_else(gen_token);
-            set_setting(pool, "admin_token", &t).await?;
-            Ok(t)
-        }
-    }
-}

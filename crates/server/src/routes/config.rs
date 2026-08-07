@@ -49,7 +49,6 @@ async fn rotate_config(
         Some("admin") => {
             let t = crate::db::gen_token();
             crate::db::set_setting(&state.pool, "admin_token", &t).await?;
-            state.rotate_admin(t).await;
         }
         Some(_) => {
             return Err(ApiError::bad_request("rotate must be 'admin'"));

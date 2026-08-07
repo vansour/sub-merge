@@ -17,12 +17,8 @@ pub(crate) fn valid_combined_name(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
 }
 
-pub async fn build_router(
-    pool: sqlx::sqlite::SqlitePool,
-    cfg: crate::config::AppConfig,
-    admin_token: String,
-) -> Router {
-    let state = AppState::new(pool, cfg, admin_token);
+pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::AppConfig) -> Router {
+    let state = AppState::new(pool, cfg);
     let api = Router::new()
         .route("/subscribe/{name}", get(subscribe::subscribe_handler))
         .merge(auth::router())

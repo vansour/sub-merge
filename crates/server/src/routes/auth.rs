@@ -1,10 +1,10 @@
 // crates/server/src/routes/auth.rs
+use crate::auth::extract_bearer;
 use crate::error::ApiError;
 use crate::state::AppState;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::HeaderMap;
-use axum::http::header::AUTHORIZATION;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -30,12 +30,6 @@ pub struct LoginResp {
 #[derive(Serialize)]
 pub struct SetupStatusResp {
     pub needs_setup: bool,
-}
-
-/// 提取 Bearer token（require_admin 与 logout 复用）
-pub fn extract_bearer(headers: &HeaderMap) -> Option<&str> {
-    let auth = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    auth.strip_prefix("Bearer ")
 }
 
 fn valid_username(s: &str) -> bool {

@@ -25,76 +25,59 @@ async fn test_pool(tmp: &std::path::Path) -> SqlitePool {
     init_db(&tmp.join("test.db")).await.unwrap()
 }
 
-#[tokio::test]
-async fn db_creates_tables_and_tokens() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-tokens", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    let pool = test_pool(&tmp).await;
-
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
-    assert_eq!(admin.len(), 64); // 32 bytes hex
-
-    // 幂等：再次调用返回相同 token
-    let admin2 = server::db::ensure_tokens(&pool).await.unwrap();
-    assert_eq!(admin, admin2);
-
-    // 订阅 token 不再写入 settings
-    let sub = server::db::get_setting(&pool, "subscribe_token")
-        .await
-        .unwrap();
-    assert!(sub.is_none(), "subscribe_token must not be initialized");
+fn valid_setup(name: &str) -> String {
+    json!({"username": name, "password": "pass-12345", "password_confirm": "pass-12345"})
+        .to_string()
 }
 
-#[tokio::test]
-async fn env_preset_tokens_used_only_on_first_init() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-env-tokens", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    let pool = test_pool(&tmp).await;
-
-    // 首次初始化：token 来源注入预设值（对应环境变量 SUB_MERGE_ADMIN_TOKEN 的行为）
-    let admin = server::db::ensure_tokens_with(&pool, |key| {
-        assert_eq!(key, "admin_token", "only admin_token is expected");
-        Some("preset-admin-token-00000000000000000000000000000000".into())
-    })
-    .await
-    .unwrap();
-    assert_eq!(admin, "preset-admin-token-00000000000000000000000000000000");
-
-    // 已有 token 时：即使注入新预设值也不覆盖（已部署实例 token 稳定）
-    let admin2 = server::db::ensure_tokens_with(&pool, |_| {
-        Some("another-preset-token-0000000000000000000000000000000".into())
-    })
-    .await
-    .unwrap();
-    assert_eq!(admin2, admin);
-
-    // 无预设值则随机生成（原行为不变）：用全新 DB 验证
-    let tmp2 =
-        std::env::temp_dir().join(format!("submerge-test-{}-env-tokens2", std::process::id()));
-    std::fs::create_dir_all(&tmp2).unwrap();
-    let pool2 = test_pool(&tmp2).await;
-    let admin3 = server::db::ensure_tokens_with(&pool2, |_| None)
+async fn http(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    body: Option<String>,
+    token: Option<&str>,
+) -> (axum::http::StatusCode, serde_json::Value) {
+    let mut b = axum::http::Request::builder().method(method).uri(uri);
+    if let Some(t) = token {
+        b = b.header("authorization", format!("Bearer {t}"));
+    }
+    let req = match body {
+        Some(s) => b
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(s))
+            .unwrap(),
+        None => b.body(axum::body::Body::empty()).unwrap(),
+    };
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert_eq!(admin3.len(), 64);
+    let v = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, v)
 }
 
-#[tokio::test]
-async fn tokens_initialized_reflects_first_init() {
-    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-tok-init", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    let pool = test_pool(&tmp).await;
-
-    // 全新 DB：未初始化
-    assert!(!server::db::tokens_initialized(&pool).await.unwrap());
-
-    // ensure_tokens 后：已初始化
-    server::db::ensure_tokens(&pool).await.unwrap();
-    assert!(server::db::tokens_initialized(&pool).await.unwrap());
-
-    // 重启幂等：再次调用仍是已初始化（不触发首次打印）
-    server::db::ensure_tokens(&pool).await.unwrap();
-    assert!(server::db::tokens_initialized(&pool).await.unwrap());
+/// 走真实 HTTP 链路创建管理员并登录，返回会话 token
+async fn setup_admin(app: &axum::Router) -> String {
+    let (s, _) = http(
+        app,
+        "POST",
+        "/admin/setup",
+        Some(valid_setup("admin")),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "setup must succeed");
+    let (s, v) = http(
+        app,
+        "POST",
+        "/admin/login",
+        Some(json!({"username": "admin", "password": "pass-12345"}).to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "login must succeed");
+    v["token"].as_str().unwrap().to_string()
 }
 
 #[tokio::test]
@@ -102,9 +85,8 @@ async fn unknown_route_returns_404() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-router", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .oneshot(
@@ -124,14 +106,13 @@ async fn subscribe_without_token_succeeds() {
         std::env::temp_dir().join(format!("submerge-test-{}-sub-notoken", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     // 空成员组合：无源可拉，输出空 clash 配置
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
         .execute(&pool)
         .await
         .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     // 无任何 token 参数即可访问；无源时输出空 clash 配置
     let resp = app
@@ -151,9 +132,8 @@ async fn subscribe_wrong_combined_name_returns_404() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-404", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .oneshot(
@@ -190,7 +170,6 @@ async fn subscribe_returns_subscription() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-valid", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
 
     // 插入一个指向 mock server 的源
     let url = format!("{}/sub", mock.uri());
@@ -220,7 +199,7 @@ async fn subscribe_returns_subscription() {
         .unwrap();
 
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .clone()
@@ -246,14 +225,13 @@ async fn subscribe_wrong_format_returns_bad_request() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-sub-badfmt", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     // 组合必须存在，format 校验才会被触达
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
         .execute(&pool)
         .await
         .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .clone()
@@ -318,7 +296,6 @@ async fn fetch_and_merge_respects_concurrency_cap() {
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
 
     // 插入 6 个源，全部指向同一台并发计数服务器。
     for i in 0..6 {
@@ -340,7 +317,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
         max_nodes: 100,
         web_dist: tmp.join("empty-dist"),
     };
-    let state = server::state::AppState::new(pool, cfg, admin);
+    let state = server::state::AppState::new(pool, cfg);
 
     let (nodes, errors) = server::service::fetch_and_merge(&state, None).await;
 
@@ -372,9 +349,8 @@ async fn admin_requires_bearer_token() {
         std::env::temp_dir().join(format!("submerge-test-{}-admin-noauth", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     // 无 header
     let resp = app
@@ -409,9 +385,9 @@ async fn admin_crud_sources() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-admin-crud", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |mut req: Request<Body>| {
         req.headers_mut().insert(
@@ -522,7 +498,6 @@ async fn preview_returns_node_list() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-preview", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
         .bind(&url)
@@ -532,7 +507,8 @@ async fn preview_returns_node_list() {
         .await
         .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let resp = app
         .clone()
@@ -559,9 +535,13 @@ async fn config_get_and_rotate() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-config", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    // 预置 settings.admin_token：GET /admin/config 回显 settings 中的值（鉴权已是会话 token，与它无关）
+    server::db::set_setting(&pool, "admin_token", "preset-token")
+        .await
+        .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |mut req: Request<Body>| {
         req.headers_mut().insert(
@@ -571,7 +551,7 @@ async fn config_get_and_rotate() {
         req
     };
 
-    // GET config：只含 admin_token；combined_name/subscribe_url/subscribe_token 已移除
+    // GET config：只含 admin_token（settings 回显）；combined_name/subscribe_url/subscribe_token 已移除
     let resp = app
         .clone()
         .oneshot(auth(
@@ -587,7 +567,7 @@ async fn config_get_and_rotate() {
         .await
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["admin_token"], admin);
+    assert_eq!(v["admin_token"], "preset-token");
     assert!(
         v.get("combined_name").is_none(),
         "combined_name must be gone"
@@ -623,9 +603,12 @@ async fn admin_token_rotation_takes_effect_live() {
         std::env::temp_dir().join(format!("submerge-test-{}-admin-rotate", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
+    server::db::set_setting(&pool, "admin_token", "old-token")
+        .await
+        .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |token: &str, req: Request<Body>| {
         let mut req = req;
@@ -636,7 +619,7 @@ async fn admin_token_rotation_takes_effect_live() {
         req
     };
 
-    // 轮换 admin token（用旧 token 调 PUT）
+    // 轮换 admin token（用会话 token 调 PUT）→ 200，settings 回显新 token
     let resp = app
         .clone()
         .oneshot(auth(
@@ -656,9 +639,9 @@ async fn admin_token_rotation_takes_effect_live() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let new_admin = v["admin_token"].as_str().unwrap().to_string();
-    assert_ne!(new_admin, admin);
+    assert_ne!(new_admin, "old-token");
 
-    // 旧 token 立即失效（内存锁已更新）
+    // 轮换不影响会话鉴权：会话 token 仍有效（鉴权走 sessions 表，settings 轮换不再使其失效）
     let resp = app
         .clone()
         .oneshot(auth(
@@ -670,9 +653,9 @@ async fn admin_token_rotation_takes_effect_live() {
         ))
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(resp.status(), StatusCode::OK);
 
-    // 新 token 生效
+    // 轮换出的 settings token 不再是鉴权凭证：401
     let resp = app
         .clone()
         .oneshot(auth(
@@ -684,7 +667,7 @@ async fn admin_token_rotation_takes_effect_live() {
         ))
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 async fn assert_error_json(resp: axum::response::Response, expected_code: &str) {
@@ -711,9 +694,9 @@ async fn rejection_non_numeric_id_returns_unified_json() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-path", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let resp = app
         .clone()
@@ -737,9 +720,9 @@ async fn rejection_malformed_json_returns_unified_json() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-rej-json", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let resp = app
         .clone()
@@ -773,7 +756,6 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-wg-skip", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     let res =
         sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
@@ -800,7 +782,7 @@ async fn subscribe_skips_unserializable_node_instead_of_500() {
         .await
         .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .clone()
@@ -836,12 +818,11 @@ async fn api_path_variants_return_json_404() {
     std::fs::write(dist.join("index.html"), "<html>sub-merge</html>").unwrap();
 
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = AppConfig {
         web_dist: dist,
         ..test_config(&tmp)
     };
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     for path in [
         "/api",
@@ -890,7 +871,6 @@ async fn static_index_served_from_dist() {
     std::fs::write(dist.join("app.css"), "body{color:red}").unwrap();
 
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = AppConfig {
         port: 0,
         db_path: tmp.join("test.db"),
@@ -899,7 +879,7 @@ async fn static_index_served_from_dist() {
         max_nodes: 100,
         web_dist: dist.clone(),
     };
-    let app = server::routes::build_router(pool, cfg.clone(), admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg.clone()).await;
 
     // 健康检查走 /healthz（不经过 fallback）
     let resp = app
@@ -990,7 +970,7 @@ async fn static_index_served_from_dist() {
         web_dist: tmp.join("no-such-dist"),
         ..cfg
     };
-    let app = server::routes::build_router(test_pool(&tmp).await, empty_cfg, admin).await;
+    let app = server::routes::build_router(test_pool(&tmp).await, empty_cfg).await;
     let resp = app
         .oneshot(
             Request::builder()
@@ -1052,9 +1032,8 @@ async fn single_source_parses_without_network() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-single", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let state = server::state::AppState::new(pool, cfg, admin);
+    let state = server::state::AppState::new(pool, cfg);
 
     // remote 源：正常 mock
     let mock = MockServer::start().await;
@@ -1107,9 +1086,8 @@ async fn invalid_single_source_reports_source_error() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-single-bad", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let state = server::state::AppState::new(pool, cfg, admin);
+    let state = server::state::AppState::new(pool, cfg);
 
     sqlx::query(
         "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
@@ -1138,9 +1116,9 @@ async fn admin_crud_respects_kind() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-kind", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |mut req: Request<Body>| {
         req.headers_mut().insert(
@@ -1241,9 +1219,9 @@ async fn refresh_single_source_reports_locally() {
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool.clone(), cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool.clone(), cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |mut req: Request<Body>| {
         req.headers_mut().insert(
@@ -1402,9 +1380,9 @@ async fn combined_crud_and_members() {
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |mut req: Request<Body>| {
         req.headers_mut().insert(
@@ -1604,7 +1582,6 @@ async fn combined_subscription_serves_only_members() {
         std::env::temp_dir().join(format!("submerge-test-{}-combined-sub", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let url = format!("{}/sub", mock.uri());
     // remote 源（mock，节点 IN）与 single 源（节点 OUT，指向不可达地址）
     let res = sqlx::query(
@@ -1646,7 +1623,7 @@ async fn combined_subscription_serves_only_members() {
         .unwrap();
 
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .clone()
@@ -1675,13 +1652,12 @@ async fn combined_subscription_empty_members_returns_200() {
     ));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('empty-grp', 'now')")
         .execute(&pool)
         .await
         .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .oneshot(
@@ -1705,7 +1681,6 @@ async fn preview_combined_filter() {
         std::env::temp_dir().join(format!("submerge-test-{}-preview-cmb", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
     let res = sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S1', 's1', 'single', 1, 'now')")
         .execute(&pool)
         .await
@@ -1726,7 +1701,8 @@ async fn preview_combined_filter() {
         .await
         .unwrap();
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin.clone()).await;
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
 
     let auth = |mut req: Request<Body>| {
         req.headers_mut().insert(
@@ -1793,7 +1769,6 @@ async fn combined_subscription_all_members_failed_returns_502() {
         std::env::temp_dir().join(format!("submerge-test-{}-combined-502", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
-    let admin = server::db::ensure_tokens(&pool).await.unwrap();
 
     // remote 源：127.0.0.1:1 连接被立即拒绝，fetch_source 报错 → SourceError
     let res = sqlx::query(
@@ -1825,7 +1800,7 @@ async fn combined_subscription_all_members_failed_returns_502() {
         .unwrap();
 
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, admin).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     let resp = app
         .clone()
@@ -1919,45 +1894,13 @@ async fn user_and_session_db_functions() {
     );
 }
 
-fn valid_setup(name: &str) -> String {
-    json!({"username": name, "password": "pass-12345", "password_confirm": "pass-12345"})
-        .to_string()
-}
-
-async fn http(
-    app: &axum::Router,
-    method: &str,
-    uri: &str,
-    body: Option<String>,
-    token: Option<&str>,
-) -> (axum::http::StatusCode, serde_json::Value) {
-    let mut b = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(t) = token {
-        b = b.header("authorization", format!("Bearer {t}"));
-    }
-    let req = match body {
-        Some(s) => b
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(s))
-            .unwrap(),
-        None => b.body(axum::body::Body::empty()).unwrap(),
-    };
-    let resp = app.clone().oneshot(req).await.unwrap();
-    let status = resp.status();
-    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let v = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
-    (status, v)
-}
-
 #[tokio::test]
 async fn setup_creates_admin_once() {
     let tmp = std::env::temp_dir().join(format!("submerge-test-{}-setup", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, "admin-token".to_string()).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     // setup-status：未创建 → needs_setup true
     let (s, v) = http(&app, "GET", "/admin/setup-status", None, None).await;
@@ -1996,7 +1939,7 @@ async fn setup_validates_fields() {
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, "admin-token".to_string()).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     // 密码过短 → 400
     let (s, _) = http(
@@ -2035,7 +1978,7 @@ async fn login_and_logout_flow() {
     std::fs::create_dir_all(&tmp).unwrap();
     let pool = test_pool(&tmp).await;
     let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg, "admin-token".to_string()).await;
+    let app = server::routes::build_router(pool, cfg).await;
 
     http(
         &app,
@@ -2069,8 +2012,17 @@ async fn login_and_logout_flow() {
         assert_eq!(v["error"]["code"], "unauthorized");
     }
 
-    // logout 后 token 失效（此时 require_admin 还是旧 token 实现，用 GET /admin/setup-status 无法验证
-    // 会话删除——改由 Task 3 的鉴权切换后验证；此处只断言 logout 返回 204 且无鉴权问题）
+    // logout 删除会话：同一 token 再访问受保护端点 → 401
+    let (s, _) = http(&app, "POST", "/admin/logout", None, Some(&token)).await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (s, _) = http(&app, "GET", "/admin/config", None, Some(&token)).await;
+    assert_eq!(
+        s,
+        StatusCode::UNAUTHORIZED,
+        "logout must delete the session"
+    );
+
+    // logout 幂等：token 已失效仍返回 204
     let (s, _) = http(&app, "POST", "/admin/logout", None, Some(&token)).await;
     assert_eq!(s, StatusCode::NO_CONTENT);
 }

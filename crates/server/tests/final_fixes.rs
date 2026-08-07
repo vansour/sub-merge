@@ -35,7 +35,7 @@ async fn api_unknown_path_returns_json_404_not_spa() {
         max_nodes: 100,
         web_dist: dir.clone(),
     };
-    let app = build_router(pool, cfg, "admin-token".to_string()).await;
+    let app = build_router(pool, cfg).await;
 
     let resp = app
         .oneshot(
@@ -90,8 +90,12 @@ async fn refresh_source_zero_nodes_reports_ok_false() {
         max_nodes: 100,
         web_dist: dir.clone(),
     };
-    let admin_token = "admin-token";
-    let app = build_router(pool.clone(), cfg, admin_token.to_string()).await;
+    let app = build_router(pool.clone(), cfg).await;
+    // 会话鉴权：直接走 db 层创建用户与会话
+    server::db::create_user(&pool, "admin", "pass-12345")
+        .await
+        .unwrap();
+    let session = server::db::create_session(&pool).await.unwrap();
 
     // 指向返回空/零节点内容的 URL。
     let url = format!("{}/empty", mock.uri());
@@ -108,7 +112,7 @@ async fn refresh_source_zero_nodes_reports_ok_false() {
             Request::builder()
                 .method("POST")
                 .uri("/admin/sources/1/refresh")
-                .header("authorization", format!("Bearer {admin_token}"))
+                .header("authorization", format!("Bearer {session}"))
                 .body(Body::empty())
                 .unwrap(),
         )

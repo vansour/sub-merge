@@ -5,35 +5,25 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::http::header::AUTHORIZATION;
 
-/// 校验 Bearer 管理 token。返回 Ok(()) 或 401。
+/// 提取 Bearer token（require_admin 与 logout 复用）
+pub fn extract_bearer(headers: &HeaderMap) -> Option<&str> {
+    let auth = headers.get(AUTHORIZATION)?.to_str().ok()?;
+    auth.strip_prefix("Bearer ")
+}
+
+/// 校验 Bearer 会话 token：sha256(token) 查 sessions 表。返回 Ok(()) 或 401。
 pub async fn require_admin(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<(), ApiError> {
-    let Some(auth) = headers.get(AUTHORIZATION) else {
+    let Some(token) = extract_bearer(&headers) else {
         return Err(ApiError::unauthorized("missing authorization header"));
     };
-    let Ok(auth_str) = auth.to_str() else {
-        return Err(ApiError::unauthorized("invalid authorization header"));
-    };
-    let Some(token) = auth_str.strip_prefix("Bearer ") else {
-        return Err(ApiError::unauthorized("expected Bearer token"));
-    };
-    if constant_eq(token, &state.admin_token.read().await) {
+    if crate::db::validate_session(&state.pool, token).await? {
         Ok(())
     } else {
-        Err(ApiError::unauthorized("invalid admin token"))
+        Err(ApiError::unauthorized("invalid session"))
     }
-}
-
-fn constant_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes()
-        .zip(b.bytes())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
 }
 
 // axum 中间件式鉴权：把 require_admin 作为 before 层。
