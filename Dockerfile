@@ -28,6 +28,9 @@ RUN apt-get update \
     && unzip -o -q /tmp/dx.zip -d /usr/local/bin \
     && rm /tmp/dx.zip
 WORKDIR /app/crates/server/web
+# web-core 继承 workspace 的 edition/rust-version，需根 Cargo.toml 解析 workspace root。
+COPY Cargo.toml /app/Cargo.toml
+COPY crates/web-core /app/crates/web-core
 COPY crates/server/web /app/crates/server/web
 # 独立 crate：本 crate 有空的 [workspace] 表 opt-out，无需根 Cargo.toml。
 # 注意：crates/server/web/dist 是指向 target/dx/... 的 symlink，且被 .dockerignore
@@ -44,6 +47,7 @@ WORKDIR /app
 COPY Cargo.toml /app/Cargo.toml
 COPY Cargo.lock /app/Cargo.lock
 COPY crates/proxy-core /app/crates/proxy-core
+COPY crates/web-core /app/crates/web-core
 COPY crates/server /app/crates/server
 # 注意：--mount=type=cache 的挂载目录不进入本阶段 filesystem layer，
 # 无法被后续 COPY --from 取到。故把编译产物从 cache 拷贝到普通路径 /out，
