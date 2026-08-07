@@ -488,6 +488,206 @@ git commit -m "chore: 测试加固（临时目录清理/c-test guard/断言精�
 
 ---
 
+### Task 5: 会话 TTL — 滑动过期 + 环境变量配置
+
+**Files:**
+- Modify: `crates/server/src/db.rs`（sessions 表加 last_used_at + 迁移、create_session/validate_session 改、delete_expired_sessions）
+- Modify: `crates/server/src/config.rs`（AppConfig 加 session_ttl_days）
+- Modify: `crates/server/src/auth.rs`（require_admin 传 ttl）
+- Modify: `crates/server/src/main.rs`（启动清理过期会话）
+- Test: `crates/server/tests/api_test.rs`、`crates/server/tests/final_fixes.rs`（AppConfig 构造点补字段）
+
+**Interfaces:**
+- Consumes: 现状 `create_session`/`validate_session`/`delete_all_sessions`（db.rs）、`AppConfig`（config.rs）
+- Produces:
+  - `AppConfig.session_ttl_days: u64`（env `SESSION_TTL_DAYS`，默认 30；**0 = 禁用过期**）
+  - `validate_session(pool, token, ttl_days) -> Result<bool>`：过期判断（last_used + ttl < now → 删除该会话返回 false）+ 滑动续期（UPDATE last_used_at）
+  - `delete_expired_sessions(pool, ttl_days)`：启动清理（ttl 0 时 no-op）
+  - sessions 表加 `last_used_at TEXT NOT NULL`（新表建表带列；旧表 ALTER ADD COLUMN DEFAULT (datetime('now')) 迁移，duplicate column 忽略——沿用 kind 列迁移模式）
+
+- [ ] **Step 1: 建表与迁移（db.rs init_db）**
+
+```sql
+-- 新表（替换现有 sessions 建表）：
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT NOT NULL
+);
+```
+
+建表后追加迁移（沿用 sources.kind 的 ALTER + duplicate column 忽略模式）：
+
+```rust
+if let Err(e) = sqlx::query(
+    "ALTER TABLE sessions ADD COLUMN last_used_at TEXT NOT NULL DEFAULT (datetime('now'))",
+)
+.execute(&pool)
+.await
+    && !e.to_string().contains("duplicate column name")
+{
+    return Err(e.into());
+}
+```
+
+- [ ] **Step 2: 写失败测试**
+
+`user_and_session_db_functions` 追加（模拟时间流逝——手动 UPDATE last_used_at 回拨）：
+
+```rust
+// TTL 滑动过期：last_used_at 回拨超过 TTL → 过期删除；回拨在 TTL 内 → 续期有效
+let t3 = server::db::create_session(&pool).await.unwrap();
+sqlx::query("UPDATE sessions SET last_used_at = datetime('now', '-40 days') WHERE token_hash = ?")
+    .bind(sha256_hex_manual(&t3))
+    .execute(&pool).await.unwrap();
+assert!(!server::db::validate_session(&pool, &t3, 30).await.unwrap(), "过期会话必须失效");
+assert!(!server::db::validate_session(&pool, &t3, 30).await.unwrap(), "过期会话已被惰性删除");
+// 回拨 10 天（TTL=30 内）→ 滑动续期后有效
+let t4 = server::db::create_session(&pool).await.unwrap();
+sqlx::query("UPDATE sessions SET last_used_at = datetime('now', '-10 days') WHERE token_hash = ?")
+    .bind(sha256_hex_manual(&t4))
+    .execute(&pool).await.unwrap();
+assert!(server::db::validate_session(&pool, &t4, 30).await.unwrap(), "TTL 内会话有效（滑动续期）");
+// TTL=0 禁用过期
+let t5 = server::db::create_session(&pool).await.unwrap();
+sqlx::query("UPDATE sessions SET last_used_at = datetime('now', '-100 days') WHERE token_hash = ?")
+    .bind(sha256_hex_manual(&t5))
+    .execute(&pool).await.unwrap();
+assert!(server::db::validate_session(&pool, &t5, 0).await.unwrap(), "ttl=0 禁用过期");
+```
+
+测试内联 sha256（不导出新 API）：
+
+```rust
+fn sha256_hex_manual(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    const_hex::encode(h.finalize())
+}
+```
+
+`validate_session` 签名变化（加 ttl_days 参数）会破坏既有调用点（auth.rs、旧测试）——Step 4 同步改。
+
+- [ ] **Step 3: 实现（db.rs + config.rs + auth.rs + main.rs）**
+
+db.rs：
+
+```rust
+pub async fn create_session(pool: &SqlitePool) -> Result<String> {
+    let token = gen_token();
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("INSERT INTO sessions (token_hash, created_at, last_used_at) VALUES (?, ?, ?)")
+        .bind(sha256_hex(&token)).bind(&now).bind(&now)
+        .execute(pool).await?;
+    Ok(token)
+}
+
+/// 校验会话：ttl_days > 0 时超过有效期（last_used + ttl < now）的会话删除并返回 false；
+/// 有效会话滑动续期（UPDATE last_used_at）。ttl_days == 0 禁用过期。
+pub async fn validate_session(pool: &SqlitePool, token: &str, ttl_days: u64) -> Result<bool> {
+    let hash = sha256_hex(token);
+    let row = sqlx::query("SELECT last_used_at FROM sessions WHERE token_hash = ?")
+        .bind(&hash).fetch_optional(pool).await?;
+    let Some(row) = row else { return Ok(false) };
+    let last_used: String = row.get(0);
+    if ttl_days > 0 {
+        let expired = match chrono::DateTime::parse_from_rfc3339(&last_used) {
+            Ok(last) => last + chrono::Duration::days(ttl_days as i64) < chrono::Utc::now(),
+            Err(_) => true, // 无法解析视为过期（含旧格式空串）
+        };
+        if expired {
+            sqlx::query("DELETE FROM sessions WHERE token_hash = ?")
+                .bind(&hash).execute(pool).await?;
+            return Ok(false);
+        }
+    }
+    // 滑动续期
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query("UPDATE sessions SET last_used_at = ? WHERE token_hash = ?")
+        .bind(&now).bind(&hash).execute(pool).await?;
+    Ok(true)
+}
+
+/// 启动清理：删除所有过期会话（ttl_days == 0 时 no-op）。
+pub async fn delete_expired_sessions(pool: &SqlitePool, ttl_days: u64) -> Result<()> {
+    if ttl_days == 0 { return Ok(()); }
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(ttl_days as i64)).to_rfc3339();
+    sqlx::query("DELETE FROM sessions WHERE last_used_at < ?")
+        .bind(cutoff).execute(pool).await?;
+    Ok(())
+}
+```
+
+config.rs：
+
+```rust
+pub struct AppConfig {
+    // ...现状字段
+    pub session_ttl_days: u64,
+}
+// from_env:
+let session_ttl_days = std::env::var("SESSION_TTL_DAYS")
+    .ok().and_then(|v| v.parse().ok())
+    .unwrap_or(30);
+```
+
+auth.rs（require_admin）：
+
+```rust
+if crate::db::validate_session(&state.pool, token, state.cfg.session_ttl_days).await? {
+```
+
+main.rs（init 后、build_router 前）：
+
+```rust
+server::db::delete_expired_sessions(&pool, cfg.session_ttl_days).await?;
+```
+
+- [ ] **Step 4: 既有调用点同步**
+
+`AppConfig` 新增字段破坏所有字面构造点，全部补 `session_ttl_days`：
+- `api_test.rs` 的 `test_config`（加 `session_ttl_days: 0`——测试默认禁用过期，既有测试语义不变）+ `fetch_and_merge_respects_concurrency_cap` 的直接构造 + `static_index_served_from_dist` 的 `..test_config(&tmp)`（自动继承，无需改）
+- `final_fixes.rs` 两处 AppConfig 直接构造（加 `session_ttl_days: 0`）
+- 旧 `validate_session(&pool, &t)` 两参调用（`user_and_session_db_functions` 内）改三参（ttl 0——测试默认禁用）
+
+新增集成测试（TTL 生效的端到端路径）：
+
+```rust
+#[tokio::test]
+async fn expired_session_rejected_by_api() {
+    let tmp = std::env::temp_dir().join(format!("submerge-test-{}-ttl", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp); // session_ttl_days: 0 基线上覆盖
+    let app = server::routes::build_router(pool.clone(), AppConfig { session_ttl_days: 30, ..cfg }).await;
+    let admin = setup_admin(&app).await;
+    // 回拨 last_used_at 超 TTL → 请求 401
+    sqlx::query("UPDATE sessions SET last_used_at = datetime('now', '-40 days')")
+        .execute(&pool).await.unwrap();
+    let (s, _) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "过期会话必须 401");
+}
+```
+
+注意：`build_router(pool, cfg)` 新签名（认证改造后无 token 参数）。setup_admin 的 setup/login 在 ttl=30 下正常（新会话）。`test_config` 里 ttl=0 会被 `AppConfig { session_ttl_days: 30, ..cfg }` 覆盖为 30。
+
+- [ ] **Step 5: 跑测试确认通过**
+
+Run: `cargo test --test api_test user_and_session_db_functions expired_session_rejected_by_api`
+Expected: 全 PASS
+
+- [ ] **Step 6: 门禁 + commit**
+
+Run: `cargo fmt --all && cargo clippy --workspace && cargo test --workspace`
+
+```bash
+git add crates/server/src/ crates/server/tests/
+git commit -m "feat(auth): 会话滑动过期（SESSION_TTL_DAYS 默认 30 天，0 禁用）+ 惰性与启动清理"
+```
+
+---
+
 ## 自审记录
 
 **遗留清单覆盖检查（对照两个批次 ledger + 最终评审）：**
@@ -504,7 +704,7 @@ git commit -m "chore: 测试加固（临时目录清理/c-test guard/断言精�
 | login 空 token 兜底 | Task 2 |
 | setup-status 无重试按钮 | Task 2（probe 闭包 + 重试按钮） |
 | overview 图标 / stats CSS / mask_token / PreviewSummary / NavGroup name / preview-filter-row | Task 3 |
-| 会话 TTL | **明确不修**（spec YAGNI） |
+| 会话 TTL | Task 5（用户 2026-08-07 确认加回：滑动过期 + SESSION_TTL_DAYS 默认 30 天，0 禁用；原 spec YAGNI 决策被用户新指令取代） |
 | 测试临时目录 PID 复用 | Task 4（fresh_tmp 清理） |
 | c-test 空 DB IndexError | Task 4 |
 | refresh_failure rows0 精度 | Task 4 |
