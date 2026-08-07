@@ -114,7 +114,7 @@ fn clash_subscription_default_template() {
     let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).unwrap();
     let prov = v["proxy-providers"].as_mapping().unwrap();
     assert_eq!(prov.len(), 1);
-    assert!(prov.contains_key(&serde_yaml_ng::Value::String("home".into())));
+    assert!(prov.contains_key(serde_yaml_ng::Value::String("home".into())));
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn clash_subscription_system_sections_override() {
     let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).unwrap();
     let prov = v["proxy-providers"].as_mapping().unwrap();
     assert_eq!(prov.len(), 1, "模板 providers 必须被系统段覆盖");
-    assert!(prov.contains_key(&serde_yaml_ng::Value::String("home".into())));
+    assert!(prov.contains_key(serde_yaml_ng::Value::String("home".into())));
     assert!(!out.contains("evil"), "模板 providers/groups 不得残留");
 }
 
