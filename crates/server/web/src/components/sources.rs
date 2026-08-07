@@ -3,18 +3,20 @@
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::icon::{Spinner, icon};
+use crate::components::preview_section::PreviewSection;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
 use crate::data::{DataStore, UnitKey};
 use dioxus::prelude::*;
 use submerge_web_core::fmt::kind_label;
 
+// 订阅源页按 kind 参数化：本地（"single"）/ 远程（"remote"）两实例共用（导航结构 Task 4 建双入口）。
+// 列表按 kind 过滤；添加表单类型固定（body 传 kind）；页面底部内嵌该 kind 的预览区。
 #[component]
-pub fn Sources(token: Signal<Option<String>>) -> Element {
+pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     let data = use_context::<DataStore>();
     let mut error = use_signal(String::new);
     let mut new_url = use_signal(String::new);
     let mut new_name = use_signal(String::new);
-    let mut new_kind = use_signal(|| "remote".to_string());
     let adding = use_signal(|| false);
     let mut refreshing = use_signal(std::collections::HashSet::<i64>::new);
     let mut confirm = use_signal(ConfirmState::default);
@@ -22,13 +24,18 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
     let toasts = use_toast();
 
     // 数据来自 DataStore 缓存（MainShell 预载）；CRUD 成功后 data.refresh 回写。
+    // 列表按 kind 过滤：页内只展示本页类型的源（添加的源也固定为该 kind）。
     let sources_state = data.sources.read().clone();
-    let source_list = sources_state.data.unwrap_or_default();
+    let source_list = sources_state
+        .data
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.kind == kind)
+        .collect::<Vec<_>>();
 
     let add = move |_| {
         let url = new_url.read().clone();
         let name = new_name.read().clone();
-        let kind = new_kind.read().clone();
         if url.is_empty() || name.is_empty() {
             error.set("URL 和名称不能为空".into());
             return;
@@ -235,19 +242,10 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             h2 { class: "card-title", "添加订阅源" }
             div { class: "form-row",
                 div { class: "field",
-                    label { "类型" }
-                    select {
-                        value: new_kind,
-                        onchange: move |e| new_kind.set(e.value()),
-                        option { value: "remote", "远程订阅（订阅链接）" }
-                        option { value: "single", "单条节点（URI）" }
-                    }
-                }
-                div { class: "field",
                     label { "订阅 URL" }
                     input {
                         class: "mono",
-                        placeholder: if *new_kind.read() == "single" {
+                        placeholder: if kind == "single" {
                             "ss://..., vmess://... 单条节点链接"
                         } else {
                             "https://example.com/sub"
@@ -275,7 +273,10 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
             }
         }
         div { class: "card",
-            h2 { class: "card-title", "订阅源列表" }
+            h2 { class: "card-title",
+                "订阅源列表"
+                span { class: "badge on", "{source_list.len()} 个源" }
+            }
             if rows.is_empty() {
                 div { class: "empty",
                     {icon("sources", 36)}
@@ -294,6 +295,10 @@ pub fn Sources(token: Signal<Option<String>>) -> Element {
                     }
                 }
             }
+        }
+        div { class: "card",
+            h2 { class: "card-title", "预览" }
+            PreviewSection { token, kind: Some(kind), combined: None }
         }
         ConfirmDialog { state: confirm, on_confirm: on_confirm_delete }
     }

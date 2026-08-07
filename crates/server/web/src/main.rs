@@ -124,7 +124,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
     } else {
         match *tab.read() {
             0 => rsx! { Overview { token, on_goto } },
-            1 => rsx! { Sources { token } },
+            1 => rsx! { Sources { token, kind: "single" } },
             2 => rsx! { Combineds { token } },
             3 => rsx! { Preview { token } },
             _ => rsx! { Config { token } },

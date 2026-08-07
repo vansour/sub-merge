@@ -4,6 +4,7 @@ use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::copy_text;
 use crate::components::icon::{Spinner, icon};
+use crate::components::preview_section::PreviewSection;
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
 use crate::data::{DataStore, UnitKey};
 use dioxus::prelude::*;
@@ -29,6 +30,8 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let mut pending_id = use_signal(|| None::<i64>);
     // 复制反馈按 (组合名, 格式) 键控：复制某一格式只翻转该按钮
     let copied = use_signal(|| None::<(String, String)>);
+    // 组合预览区下拉选中值：onchange 更新 → PreviewSection 的 combined prop 变化触发重拉
+    let mut preview_combined = use_signal(|| None::<String>);
     let toasts = use_toast();
 
     // 数据来自 DataStore 缓存（MainShell 预载）；保存/删除成功后 data.refresh 回写。
@@ -249,6 +252,18 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
         })
         .collect();
 
+    // 组合预览下拉选项（预渲染，同 preview.rs 模式）。下拉是非受控 + onchange 触发，
+    // selected 属性不需要；空选项（value=""）对应「选择组合订阅」= 全部源预览。
+    let combined_options: Vec<Element> = combined_list
+        .iter()
+        .map(|c| {
+            let name = c.name.clone();
+            rsx! {
+                option { value: name.clone(), "{name}" }
+            }
+        })
+        .collect();
+
     // 弹窗内成员勾选态由 member_rows 预渲染快照持有，这里只需 name 快照（受控回显）。
     let form_name = form.read().name.clone();
     // 表单错误优先展示；无表单错误时拼接缓存单元错误（combineds 主单元 + sources 次级单元，
@@ -280,6 +295,22 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             } else {
                 {rows.into_iter()}
             }
+        }
+        div { class: "card",
+            h2 { class: "card-title", "预览" }
+            div { class: "preview-filter-row",
+                select {
+                    class: "preview-filter",
+                    onchange: move |e| {
+                        let v = e.value();
+                        let v = if v.is_empty() { None } else { Some(v) };
+                        preview_combined.set(v);
+                    },
+                    option { value: "", "选择组合订阅" }
+                    {combined_options.into_iter()}
+                }
+            }
+            PreviewSection { token, kind: None, combined: preview_combined.read().clone() }
         }
         // 新建/编辑弹窗
         if form.read().open {
