@@ -4,7 +4,7 @@
 use crate::api::request;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use submerge_web_core::dto::{CombinedDto, ConfigDto, SourceDto};
+use submerge_web_core::dto::{ClashConfigDto, CombinedDto, ConfigDto, SourceDto};
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;
@@ -21,11 +21,19 @@ pub async fn fetch_config(token: Option<&str>) -> Result<ConfigDto, String> {
     serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
 }
 
+pub async fn fetch_clash_config(token: Option<&str>) -> Result<String, String> {
+    let body = request("GET", "/admin/clash-config", None, token).await?;
+    let dto: ClashConfigDto =
+        serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))?;
+    Ok(dto.template)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnitKey {
     Sources,
     Combineds,
     Config,
+    ClashConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +68,7 @@ pub struct DataStore {
     pub sources: Signal<CacheState<Vec<SourceDto>>>,
     pub combineds: Signal<CacheState<Vec<CombinedDto>>>,
     pub config: Signal<CacheState<ConfigDto>>,
+    pub clash_config: Signal<CacheState<String>>,
     pub token: Signal<Option<String>>,
     in_flight: Signal<HashSet<UnitKey>>,
 }
@@ -70,6 +79,7 @@ impl DataStore {
             sources: Signal::new(CacheState::default()),
             combineds: Signal::new(CacheState::default()),
             config: Signal::new(CacheState::default()),
+            clash_config: Signal::new(CacheState::default()),
             token,
             in_flight: Signal::new(HashSet::new()),
         })
@@ -80,6 +90,7 @@ impl DataStore {
             0 => &[UnitKey::Sources],                     // 本地订阅
             1 => &[UnitKey::Sources],                     // 远程订阅
             2 => &[UnitKey::Combineds, UnitKey::Sources], // 组合订阅
+            3 => &[UnitKey::ClashConfig],                 // Clash 配置
             _ => &[UnitKey::Config],                      // 配置
         }
     }
@@ -89,6 +100,7 @@ impl DataStore {
             UnitKey::Sources => self.sources.read().status,
             UnitKey::Combineds => self.combineds.read().status,
             UnitKey::Config => self.config.read().status,
+            UnitKey::ClashConfig => self.clash_config.read().status,
         }
     }
 
@@ -163,12 +175,22 @@ impl DataStore {
                     error: String::new(),
                 });
             }
+            UnitKey::ClashConfig => {
+                let cur = store.clash_config.read().clone();
+                let mut s = store.clash_config;
+                s.set(CacheState {
+                    status: CacheStatus::Loading,
+                    data: cur.data,
+                    error: String::new(),
+                });
+            }
         }
         // 失败分支保留旧数据快照：Error 状态 data 置 stale_*（不置 None），
-        // 与「刷新期间旧数据保留」spec 一致（三个单元 data 类型不同，须分别捕获）。
+        // 与「刷新期间旧数据保留」spec 一致（四个单元 data 类型不同，须分别捕获）。
         let stale_sources = store.sources.read().data.clone();
         let stale_combineds = store.combineds.read().data.clone();
         let stale_config = store.config.read().data.clone();
+        let stale_clash_config = store.clash_config.read().data.clone();
         in_flight.write().insert(key);
         spawn(async move {
             let token = store.token.read().clone();
@@ -220,6 +242,22 @@ impl DataStore {
                         },
                     };
                     let mut s = store.config;
+                    s.set(next);
+                }
+                UnitKey::ClashConfig => {
+                    let next = match fetch_clash_config(token.as_deref()).await {
+                        Ok(d) => CacheState {
+                            status: CacheStatus::Ready,
+                            data: Some(d),
+                            error: String::new(),
+                        },
+                        Err(e) => CacheState {
+                            status: CacheStatus::Error,
+                            data: stale_clash_config,
+                            error: e,
+                        },
+                    };
+                    let mut s = store.clash_config;
                     s.set(next);
                 }
             }

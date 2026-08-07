@@ -5,6 +5,7 @@ mod data;
 
 use crate::api::request;
 use crate::data::DataStore;
+use components::clash_config::ClashConfig;
 use components::combineds::Combineds;
 use components::config::Config;
 use components::icon::{Spinner, icon};
@@ -80,7 +81,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
     let mut pending = use_signal(|| None::<usize>);
     let data = DataStore::provide(token);
 
-    // 叶子索引：0=本地订阅 1=远程订阅 2=组合订阅 3=配置
+    // 叶子索引：0=本地订阅 1=远程订阅 2=组合订阅 3=Clash 配置 4=配置
     // 分组名："subs"（订阅管理）"single"（单条订阅）
     // 初始展开状态按窗口宽度：窄屏（≤768px，侧栏收成顶栏）两分组默认收起，宽屏默认展开。
     // match_media 返回 Result<Option<MediaQueryList>, JsValue>，js 失败按宽屏兜底。
@@ -141,6 +142,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
             0 => rsx! { Sources { token, kind: "single" } },
             1 => rsx! { Sources { token, kind: "remote" } },
             2 => rsx! { Combineds { token } },
+            3 => rsx! { ClashConfig { token } },
             _ => rsx! { Config { token } },
         }
     };
@@ -170,7 +172,8 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                         }
                         NavLeaf { name: "combineds", label: "组合订阅", active: *tab.read() == 2, loading: *pending.read() == Some(2), onnav: move |_| go(2) }
                     }
-                    NavLeaf { name: "config", label: "配置", active: *tab.read() == 3, loading: *pending.read() == Some(3), onnav: move |_| go(3) }
+                    NavLeaf { name: "clash", label: "Clash 配置", active: *tab.read() == 3, loading: *pending.read() == Some(3), onnav: move |_| go(3) }
+                    NavLeaf { name: "config", label: "配置", active: *tab.read() == 4, loading: *pending.read() == Some(4), onnav: move |_| go(4) }
                 }
                 div { class: "sidebar-footer",
                     span { class: "sidebar-version", "v0.0.1" }

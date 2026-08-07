@@ -4,9 +4,9 @@
 // 用 scheduled 信号保证定时器只注册一次。
 use crate::components::icon::icon;
 use dioxus::prelude::*;
-use wasm_bindgen::prelude::*;
+pub use submerge_web_core::fmt::ToastKind;
 use submerge_web_core::fmt::{next_toast_id, toast_class, toast_icon};
-pub use submerge_web_core::fmt::ToastKind; // 保持既有 `use crate::components::toast::ToastKind` 路径可用
+use wasm_bindgen::prelude::*; // 保持既有 `use crate::components::toast::ToastKind` 路径可用
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToastMsg {
@@ -18,7 +18,11 @@ pub struct ToastMsg {
 /// 追加一条 toast（自动分配自增 id）。
 pub fn push_toast(mut toasts: Signal<Vec<ToastMsg>>, kind: ToastKind, text: impl Into<String>) {
     let id = next_toast_id();
-    toasts.write().push(ToastMsg { id, kind, text: text.into() });
+    toasts.write().push(ToastMsg {
+        id,
+        kind,
+        text: text.into(),
+    });
 }
 
 /// 在 ToastProvider 子树内读取 toast 信号。
@@ -30,7 +34,10 @@ pub fn use_toast() -> Signal<Vec<ToastMsg>> {
 pub(crate) fn schedule_timeout(ms: u32, f: impl FnOnce() + 'static) {
     let cb = Closure::once(f);
     if let Some(w) = web_sys::window() {
-        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms as i32);
+        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
+            cb.as_ref().unchecked_ref(),
+            ms as i32,
+        );
     }
     cb.forget();
 }

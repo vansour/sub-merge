@@ -149,6 +149,16 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
     }
     .field input.mono { font-family: var(--font-mono); }
+    .field textarea, textarea.clash-template {
+      width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 10px; font-size: 13px; color: var(--text); font-family: var(--font-mono);
+      line-height: 1.5; resize: vertical; box-sizing: border-box;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    textarea.clash-template:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
     .field select {
       width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 6px;
       padding: 8px 10px; font-size: 14px; color: var(--text); font-family: inherit;

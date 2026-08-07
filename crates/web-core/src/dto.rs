@@ -41,6 +41,11 @@ pub struct ConfigDto {
     pub username: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClashConfigDto {
+    pub template: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +106,13 @@ mod tests {
         let j = r#"{"username":"admin"}"#;
         let d: ConfigDto = serde_json::from_str(j).unwrap();
         assert_eq!(d.username, "admin");
+    }
+
+    #[test]
+    fn clash_config_dto_parses() {
+        let j = r#"{"template":"mixed-port: 7890\nmode: rule"}"#;
+        let d: ClashConfigDto = serde_json::from_str(j).unwrap();
+        assert_eq!(d.template, "mixed-port: 7890\nmode: rule");
     }
 
     #[test]

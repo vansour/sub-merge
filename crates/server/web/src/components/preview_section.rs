@@ -22,7 +22,11 @@ pub fn PreviewSection(
     // 外层绑定无需 mut：所有写入都在 load 闭包内对克隆句柄进行（Signal 句柄 Copy）。
     let req_seq = use_signal(|| 0u32);
     // 当前拉取参数键（kind+combined 组合）；变化时触发重拉
-    let key = format!("{}|{}", kind.unwrap_or(""), combined.as_deref().unwrap_or(""));
+    let key = format!(
+        "{}|{}",
+        kind.unwrap_or(""),
+        combined.as_deref().unwrap_or("")
+    );
     let mut loaded_key = use_signal(|| None::<String>);
 
     // load 只捕获 Copy 的信号句柄，参数 key 由调用方（effect / 刷新按钮）传入当前值，

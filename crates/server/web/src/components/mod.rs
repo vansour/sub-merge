@@ -1,4 +1,5 @@
 // crates/server/web/src/components/mod.rs
+pub mod clash_config;
 pub mod combineds;
 pub mod config;
 pub mod confirm;
@@ -17,8 +18,9 @@ pub async fn copy_text(text: String) -> Result<(), String> {
     // undefined：直接 writeText 会抛未捕获 JS 异常，web-sys 非 Result 导入将其转成
     // Rust panic，wasm32 panic=abort 直接让整页失效（实测点击复制按钮后页面卡死）。
     // 先探测属性存在性，不可用时返回 Err 走 toast 提示，不崩溃。
-    let clip_value = js_sys::Reflect::get(nav.as_ref(), &wasm_bindgen::JsValue::from_str("clipboard"))
-        .map_err(|e| format!("无法读取剪贴板: {:?}", e))?;
+    let clip_value =
+        js_sys::Reflect::get(nav.as_ref(), &wasm_bindgen::JsValue::from_str("clipboard"))
+            .map_err(|e| format!("无法读取剪贴板: {:?}", e))?;
     if clip_value.is_undefined() || clip_value.is_null() {
         return Err("剪贴板不可用：需 HTTPS 或 localhost 访问".into());
     }
