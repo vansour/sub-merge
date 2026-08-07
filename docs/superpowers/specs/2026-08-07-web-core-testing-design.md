@@ -51,7 +51,6 @@ crates/web-core/
 | `components/combineds.rs` | `subscribe_path(name, fmt) -> String`，返回 `/subscribe/{name}?format={fmt}`（从 rsx 内联 `format!` 抽出；base origin 拼装留在组件内） | fmt.rs |
 | `components/combineds.rs` | `next_toast_id() -> u64`（NEXT_ID thread_local 分配逻辑；`push_toast` 与 Signal 逻辑留原地） | fmt.rs |
 | `components/preview.rs` | `PreviewNode`（name/protocol/server/port）、`PreviewResp`（nodes/errors/total）、`proto_class(protocol) -> &'static str` | dto.rs / fmt.rs |
-| `components/overview.rs` | `PreviewSummary`（total/errors） | dto.rs |
 | `components/config.rs` | `ConfigDto`（username） | dto.rs |
 | `api.rs` | `ApiError`（status/message + Display + From<String>）；`request()` 留原地改 import | error.rs |
 | `components/toast.rs` | `ToastKind` 枚举 + icon/class 映射（Success→check/success、Error→alert/error、Info→config/info）；`push_toast`/`use_toast`/`schedule_timeout`/`ToastProvider`/`ToastCard` 留原地 | fmt.rs |
@@ -66,7 +65,6 @@ crates/web-core/
 
 - `proto_class`：ss/ssr→proto-0，vmess/vless→proto-1，trojan→proto-2，hysteria/hysteria2→proto-3，tuic→proto-4，未知协议→proto-5（fallback）
 - `kind_label`：single→单条，remote→远程，未知→远程（与现有表达式一致）
-- `mask_token`：短 token / 长 token 均掩码为固定 8 个 `•`；空串
 - `subscribe_path`：name+三种格式（clash/v2ray/singbox）的路径拼装；含需要 URL 编码的字符（如空格、中文）时原样拼接（与现状一致，不做编码——现状就是不编码）
 - ToastKind 映射：三枚举值的 icon 与 class
 - `next_toast_id`：连续调用单调递增

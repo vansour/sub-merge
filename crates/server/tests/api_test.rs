@@ -998,7 +998,7 @@ async fn legacy_db_without_last_used_at_column_is_migrated() {
         .unwrap();
     pool.close().await;
 
-    // init_db 迁移后：旧会话获得默认 last_used_at（datetime('now')），TTL=30 下仍有效
+    // init_db 迁移后：旧会话获得默认 last_used_at（DEFAULT '' + strftime 回填为 RFC3339），TTL=30 下仍有效
     let pool = init_db(&db_path).await.unwrap();
     assert!(
         server::db::validate_session(&pool, "legacy-token", 30)

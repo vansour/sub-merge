@@ -61,5 +61,6 @@ cd crates/server/web && dx build --web --release --debug-symbols false   # 前�
 | TIMEOUT_SECS | 15 | 单源超时 |
 | MAX_NODES | 2000 | 节点总数上限 |
 | WEB_DIST | ./web/dist | 前端静态资源目录（git-ignored symlink → dx 构建产物） |
+| SESSION_TTL_DAYS | 30 | 管理会话有效期（天），滑动过期——每次成功校验自动续期；置 0 禁用过期 |
 
 管理接口一律 `Authorization: Bearer <会话 token>`（登录后获得）。

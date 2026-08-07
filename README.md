@@ -49,6 +49,7 @@ docker compose up -d --build
 | TIMEOUT_SECS | 15 | 单源超时 |
 | MAX_NODES | 2000 | 节点总数上限 |
 | WEB_DIST | ./web/dist | 前端静态资源目录 |
+| SESSION_TTL_DAYS | 30 | 管理会话有效期（天），滑动过期——每次成功校验自动续期；置 0 禁用过期 |
 
 ## API
 
