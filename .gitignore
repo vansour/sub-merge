@@ -1,12 +1,33 @@
+# 内部文档与工具文件（Claude Code 工作产物，不入库）
+CLAUDE.md
+docs/
+.claude/
+.superpowers/
+
+# 开发目录
 .worktrees/
+
+# Rust 构建产物（`target/` 同时覆盖根 workspace 与 web crate 独立 target）
 target/
 # web crate 构建产物 symlink（dx 0.8 输出固定到 target/dx/...，dist 是指向它的 symlink）
 crates/server/web/dist
+
 # compose bind mount 数据目录（SQLite DB 含 token，禁止入库）
 submerge-data/
 # SQLite 数据文件
 *.db
 *.db-wal
 *.db-shm
+
 # Python 字节码缓存（scripts/ 下 py_compile 产物）
 __pycache__/
+
+# 编辑器/系统杂项
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# 本地环境变量
+.env
+.env.*
