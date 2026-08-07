@@ -41,6 +41,12 @@ pub fn icon(name: &'static str, size: u32) -> Element {
                 circle { cx: "12", cy: "12", r: "3" }
             }
         },
+        // chevron：右箭头（折叠分组展开指示）
+        "chevron" => rsx! {
+            svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
+                path { d: "m9 18 6-6-6-6" }
+            }
+        },
         // config：齿轮
         "config" => rsx! {
             svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",

@@ -1,10 +1,10 @@
 // crates/server/web/src/data.rs
-// 集中式数据层:四个 API 拉取函数 + 页面间共享的单元缓存(DataStore)。
+// 集中式数据层:三个 API 拉取函数 + 页面间共享的单元缓存(DataStore)。
 // 页面不再各自 use_future 拉取,改为从 DataStore 读缓存;MainShell 编排预载。
 use crate::api::request;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use submerge_web_core::dto::{CombinedDto, ConfigDto, PreviewResp, SourceDto};
+use submerge_web_core::dto::{CombinedDto, ConfigDto, SourceDto};
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;
@@ -25,7 +25,6 @@ pub async fn fetch_config(token: Option<&str>) -> Result<ConfigDto, String> {
 pub enum UnitKey {
     Sources,
     Combineds,
-    Preview,
     Config,
 }
 
@@ -55,17 +54,11 @@ impl<T> Default for CacheState<T> {
     }
 }
 
-pub async fn fetch_preview(token: Option<&str>) -> Result<PreviewResp, String> {
-    let body = request("GET", "/admin/preview", None, token).await?;
-    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
-}
-
 /// 页面共享的单元缓存 + 拉取编排。由 MainShell 经 use_context_provider 提供。
 #[derive(Clone, Copy)]
 pub struct DataStore {
     pub sources: Signal<CacheState<Vec<SourceDto>>>,
     pub combineds: Signal<CacheState<Vec<CombinedDto>>>,
-    pub preview: Signal<CacheState<PreviewResp>>,
     pub config: Signal<CacheState<ConfigDto>>,
     pub token: Signal<Option<String>>,
     in_flight: Signal<HashSet<UnitKey>>,
@@ -76,7 +69,6 @@ impl DataStore {
         use_context_provider(move || DataStore {
             sources: Signal::new(CacheState::default()),
             combineds: Signal::new(CacheState::default()),
-            preview: Signal::new(CacheState::default()),
             config: Signal::new(CacheState::default()),
             token,
             in_flight: Signal::new(HashSet::new()),
@@ -85,10 +77,9 @@ impl DataStore {
 
     pub fn required_units(tab: usize) -> &'static [UnitKey] {
         match tab {
-            0 => &[UnitKey::Sources, UnitKey::Preview],   // 概览
-            1 => &[UnitKey::Sources],                     // 订阅源
+            0 => &[UnitKey::Sources],                     // 本地订阅
+            1 => &[UnitKey::Sources],                     // 远程订阅
             2 => &[UnitKey::Combineds, UnitKey::Sources], // 组合订阅
-            3 => &[UnitKey::Preview, UnitKey::Combineds], // 预览
             _ => &[UnitKey::Config],                      // 配置
         }
     }
@@ -97,7 +88,6 @@ impl DataStore {
         match key {
             UnitKey::Sources => self.sources.read().status,
             UnitKey::Combineds => self.combineds.read().status,
-            UnitKey::Preview => self.preview.read().status,
             UnitKey::Config => self.config.read().status,
         }
     }
@@ -164,15 +154,6 @@ impl DataStore {
                     error: String::new(),
                 });
             }
-            UnitKey::Preview => {
-                let cur = store.preview.read().clone();
-                let mut s = store.preview;
-                s.set(CacheState {
-                    status: CacheStatus::Loading,
-                    data: cur.data,
-                    error: String::new(),
-                });
-            }
             UnitKey::Config => {
                 let cur = store.config.read().clone();
                 let mut s = store.config;
@@ -184,10 +165,9 @@ impl DataStore {
             }
         }
         // 失败分支保留旧数据快照：Error 状态 data 置 stale_*（不置 None），
-        // 与「刷新期间旧数据保留」spec 一致（四个单元 data 类型不同，须分别捕获）。
+        // 与「刷新期间旧数据保留」spec 一致（三个单元 data 类型不同，须分别捕获）。
         let stale_sources = store.sources.read().data.clone();
         let stale_combineds = store.combineds.read().data.clone();
-        let stale_preview = store.preview.read().data.clone();
         let stale_config = store.config.read().data.clone();
         in_flight.write().insert(key);
         spawn(async move {
@@ -224,22 +204,6 @@ impl DataStore {
                         },
                     };
                     let mut s = store.combineds;
-                    s.set(next);
-                }
-                UnitKey::Preview => {
-                    let next = match fetch_preview(token.as_deref()).await {
-                        Ok(d) => CacheState {
-                            status: CacheStatus::Ready,
-                            data: Some(d),
-                            error: String::new(),
-                        },
-                        Err(e) => CacheState {
-                            status: CacheStatus::Error,
-                            data: stale_preview,
-                            error: e,
-                        },
-                    };
-                    let mut s = store.preview;
                     s.set(next);
                 }
                 UnitKey::Config => {

@@ -4,8 +4,6 @@ pub mod config;
 pub mod confirm;
 pub mod icon;
 pub mod login;
-pub mod overview;
-pub mod preview;
 pub mod preview_section;
 pub mod sources;
 pub mod toast;

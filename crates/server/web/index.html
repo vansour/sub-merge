@@ -104,6 +104,12 @@
     .page-wrap { max-width: 960px; margin: 0 auto; }
     .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 12px; }
     .page-title { font-size: 20px; font-weight: 600; margin: 0; }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    .nav-group-head { justify-content: flex-start; }
+    .nav-group-head span:last-child { margin-left: auto; }
+    .nav-chevron { display: inline-flex; transition: transform .15s ease; color: var(--text-tertiary); }
+    .nav-chevron.open { transform: rotate(90deg); }
+    .nav-group-children { display: flex; flex-direction: column; gap: 2px; padding-left: 12px; }
 
     /* ========== 按钮 ========== */
     .btn {

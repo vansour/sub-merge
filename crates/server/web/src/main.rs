@@ -9,8 +9,6 @@ use components::combineds::Combineds;
 use components::config::Config;
 use components::icon::{Spinner, icon};
 use components::login::{Login, clear_token, read_token, write_token};
-use components::overview::Overview;
-use components::preview::Preview;
 use components::sources::Sources;
 use components::toast::ToastProvider;
 use dioxus::prelude::*;
@@ -82,12 +80,21 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
     let mut pending = use_signal(|| None::<usize>);
     let data = DataStore::provide(token);
 
+    // 叶子索引：0=本地订阅 1=远程订阅 2=组合订阅 3=配置
+    // 分组名："subs"（订阅管理）"single"（单条订阅）
+    let mut open_groups = use_signal(|| std::collections::HashSet::from(["subs", "single"]));
+
     let mut go = move |i: usize| {
         if *tab.read() == i {
             return;
         }
         if *pending.read() == Some(i) {
             return;
+        }
+        // 选中叶子时祖先分组强制展开
+        open_groups.write().insert("subs");
+        if i < 2 {
+            open_groups.write().insert("single");
         }
         if data.all_ready(i) {
             pending.set(None);
@@ -97,9 +104,6 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
             pending.set(Some(i));
         }
     };
-
-    // 跨渲染稳定的跳转句柄(Overview 的「管理订阅源」按钮用)。
-    let on_goto = use_callback(move |t: usize| go(t));
 
     // 当前页单元未加载(Idle)则自动预载;Error 不自动重试(由页内刷新按钮负责),避免死循环。
     if pending.read().is_none() && data.any_idle(*tab.read()) {
@@ -123,10 +127,9 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
         rsx! { div { class: "page-loading", Spinner { size: 28 } } }
     } else {
         match *tab.read() {
-            0 => rsx! { Overview { token, on_goto } },
-            1 => rsx! { Sources { token, kind: "single" } },
+            0 => rsx! { Sources { token, kind: "single" } },
+            1 => rsx! { Sources { token, kind: "remote" } },
             2 => rsx! { Combineds { token } },
-            3 => rsx! { Preview { token } },
             _ => rsx! { Config { token } },
         }
     };
@@ -139,11 +142,24 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                     span { "sub-merge" }
                 }
                 nav { class: "nav",
-                    NavItem { name: "overview", label: "概览", active: *tab.read() == 0, loading: *pending.read() == Some(0), onnav: move |_| go(0) }
-                    NavItem { name: "sources", label: "订阅源", active: *tab.read() == 1, loading: *pending.read() == Some(1), onnav: move |_| go(1) }
-                    NavItem { name: "combineds", label: "组合订阅", active: *tab.read() == 2, loading: *pending.read() == Some(2), onnav: move |_| go(2) }
-                    NavItem { name: "preview", label: "预览", active: *tab.read() == 3, loading: *pending.read() == Some(3), onnav: move |_| go(3) }
-                    NavItem { name: "config", label: "配置", active: *tab.read() == 4, loading: *pending.read() == Some(4), onnav: move |_| go(4) }
+                    NavGroup {
+                        name: "subs", label: "订阅管理", icon_name: "sources", open: open_groups.read().contains("subs"),
+                        on_toggle: move |_| {
+                            let mut g = open_groups.write();
+                            if g.contains("subs") { g.remove("subs"); } else { g.insert("subs"); }
+                        },
+                        NavGroup {
+                            name: "single", label: "单条订阅", icon_name: "combineds", open: open_groups.read().contains("single"),
+                            on_toggle: move |_| {
+                                let mut g = open_groups.write();
+                                if g.contains("single") { g.remove("single"); } else { g.insert("single"); }
+                            },
+                            NavLeaf { name: "local", label: "本地订阅", active: *tab.read() == 0, loading: *pending.read() == Some(0), onnav: move |_| go(0) }
+                            NavLeaf { name: "remote", label: "远程订阅", active: *tab.read() == 1, loading: *pending.read() == Some(1), onnav: move |_| go(1) }
+                        }
+                        NavLeaf { name: "combineds", label: "组合订阅", active: *tab.read() == 2, loading: *pending.read() == Some(2), onnav: move |_| go(2) }
+                    }
+                    NavLeaf { name: "config", label: "配置", active: *tab.read() == 3, loading: *pending.read() == Some(3), onnav: move |_| go(3) }
                 }
                 div { class: "sidebar-footer",
                     span { class: "sidebar-version", "v0.1.0" }
@@ -173,8 +189,35 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
     }
 }
 
+// 导航分组：可折叠头部 + 子项（NavLeaf / 嵌套 NavGroup）。children 以 Element 传入，
+// 在 if open 分支内直接插入（元素形式，不嵌套 rsx! 宏，符合坑清单）。
 #[component]
-fn NavItem(
+fn NavGroup(
+    name: &'static str,
+    label: &'static str,
+    icon_name: &'static str,
+    open: bool,
+    on_toggle: EventHandler<MouseEvent>,
+    children: Element,
+) -> Element {
+    rsx! {
+        div { class: "nav-group",
+            button { class: "nav-item nav-group-head", onclick: on_toggle,
+                {icon(icon_name, 16)}
+                span { "{label}" }
+                span { class: format!("nav-chevron{}", if open { " open" } else { "" }),
+                    {icon("chevron", 12)}
+                }
+            }
+            if open {
+                div { class: "nav-group-children", {children} }
+            }
+        }
+    }
+}
+
+#[component]
+fn NavLeaf(
     name: &'static str,
     label: &'static str,
     active: bool,
