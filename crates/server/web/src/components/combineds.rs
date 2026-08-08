@@ -26,12 +26,15 @@ struct FormState {
 pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let data = use_context::<DataStore>();
     // 行内协议 mini 徽章数据懒加载：Stats 不在 required_units（/admin/stats 含全网拉取，不阻塞切页），
-    // 本页首次渲染时触发一次；守卫信号防 effect 重入（effect 体内读信号会订阅重跑）。
+    // 首次进入（Idle）拉取；F5 重置后（Idle）拉取；后续 tab 访问跳过（组件重挂载但缓存仍在）；
+    // Error 状态下次访问重试。守卫信号先置 true 防 effect 重入循环（effect 体内读 status_of 会订阅 stats 信号）。
     let mut stats_loaded = use_signal(|| false);
     use_effect(move || {
         if !stats_loaded() {
             stats_loaded.set(true);
-            data.refresh(UnitKey::Stats);
+            if data.status_of(UnitKey::Stats) != CacheStatus::Ready {
+                data.refresh(UnitKey::Stats);
+            }
         }
     });
     let mut error = use_signal(String::new);
