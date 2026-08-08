@@ -1,13 +1,13 @@
 # sub-merge
 
-订阅链接聚合与转换工具：聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 / Sing-box JSON 三种格式。小圈子自用，用户名+密码鉴权。
+订阅链接聚合与转换工具：聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 两种格式。小圈子自用，用户名+密码鉴权。
 
 ## 功能
 
 - 聚合多个订阅源（URL），并发拉取（默认并发 8，单源超时 15s），单源失败自动跳过
 - 两种源类型：单条节点（URI 直接解析，不拉网络）与远程订阅（订阅链接，拉取后解析）；组合订阅使用命名路径输出（无鉴权）
 - 11 种协议解析：ss、ssr、socks5、http、vmess、vless、trojan、hysteria、hysteria2、tuic、wireguard
-- 3 种输出格式：Clash / V2Ray / Sing-box
+- 2 种输出格式：Clash / V2Ray
 - 输入支持：V2Ray base64 订阅、明文 URI 列表、Clash YAML（`proxies` 段）
 - 管理界面（WASM）：订阅源 CRUD、转换预览、订阅链接复制、账号管理（修改密码）
 - 多个组合订阅：每组合从源中勾选成员（多对多），独立命名订阅链接（/subscribe/{name}），组合订阅管理在侧边栏「组合订阅」页
@@ -56,7 +56,7 @@ docker compose up -d --build
 ### 订阅接口
 
 ```
-GET /subscribe/{name}?format=clash|v2ray|singbox
+GET /subscribe/{name}?format=clash|v2ray
 ```
 
 `{name}` 为组合订阅名（在 `/admin/combineds` 中定义）；`format` 缺省为 `clash`，无鉴权。名字不匹配返回 404；组合无成员时输出空配置（200）；全部成员源失败时返回 502 并附错误明细。
@@ -82,7 +82,7 @@ GET /subscribe/{name}?format=clash|v2ray|singbox
 
 ### 注意：V2Ray 格式的节点覆盖
 
-`format=v2ray` 输出仅包含 ss/ssr/vmess/vless/trojan/tuic 节点；socks5、http、hysteria、hysteria2、wireguard 节点在此格式被跳过（请使用 clash 或 singbox 格式）。
+`format=v2ray` 输出仅包含 ss/ssr/vmess/vless/trojan/tuic 节点；socks5、http、hysteria、hysteria2、wireguard 节点在此格式被跳过（请使用 clash 格式）。
 
 ## 开发
 
@@ -105,7 +105,7 @@ Dioxus Web (WASM) 管理界面 ──▶ axum Server（/subscribe/{name}、/admi
                         SQLite (SQLx, WAL)
 ```
 
-- **proxy-core**：中间模型 `ProxyNode` 覆盖全部协议，各协议 parser/serializer 围绕模型转换，三种输出格式独立模块，可脱离服务独立测试
+- **proxy-core**：中间模型 `ProxyNode` 覆盖全部协议，各协议 parser/serializer 围绕模型转换，两种输出格式独立模块，可脱离服务独立测试
 - **server**：axum 路由、用户名+密码登录与会话 token 鉴权（argon2 哈希、sha256 会话查表）、并发拉取（信号量限流）、SQLite 持久化、WASM 静态资源托管
 - **web**：Dioxus 0.8 (WASM) 管理界面，会话 token 存 localStorage
 
