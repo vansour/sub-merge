@@ -13,7 +13,19 @@ use components::login::{Login, clear_token, read_token, write_token};
 use components::sources::Sources;
 use components::toast::ToastProvider;
 use dioxus::prelude::*;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*; // Closure/JsCast（toast.rs 同款用法）
+
+thread_local! {
+    // 页面级监听器：注册后在此保活（替代 Closure::forget），MainShell 卸载时取出并
+    // removeEventListener（同 JS 函数引用），避免卸载后悬空回调写已丢弃的信号。
+    // wasm 单线程，RefCell 安全。mql 一并保存：match_media 每次返回新对象，
+    // 移除监听必须用注册时的同一个 MediaQueryList。
+    static MQ_LISTENER: RefCell<Option<(web_sys::MediaQueryList, Closure<dyn FnMut(web_sys::Event)>)>> =
+        const { RefCell::new(None) };
+    static KEYDOWN_LISTENER: RefCell<Option<Closure<dyn FnMut(web_sys::KeyboardEvent)>>> =
+        const { RefCell::new(None) };
+}
 
 fn main() {
     dioxus::launch(App);
@@ -115,12 +127,11 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                     .unwrap_or(false);
                 s.set(now);
             }));
-            // 页面生命周期监听：forget 保活（toast.rs schedule_timeout 同模式）。
-            // web-sys 0.3：addEventListener 在 EventTarget 上，签名收 &js_sys::Function
-            // （MediaQueryList 经 wasm-bindgen extends 生成 AsRef/JsCast，unchecked_ref 转 EventTarget）。
+            // 页面生命周期监听：保活存入 thread_local（卸载时取出移除，见下方 use_drop），
+            // 不能 forget——卸载后回调仍会触发，写已丢弃的信号即 panic。
             let et: &web_sys::EventTarget = mql.unchecked_ref();
             let _ = et.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref());
-            cb.forget();
+            MQ_LISTENER.with(|cell| *cell.borrow_mut() = Some((mql, cb)));
         }
     });
     // 跨断点跟随：分组默认折叠状态切换（手动开关在断点内仍有效——
@@ -130,10 +141,12 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
             open_groups.write().clear();
         } else {
             open_groups.write().extend(["subs", "single"]);
+            menu_open.set(false); // 跨断点回桌面：抽屉复位，避免幽灵遮罩/滚动锁残留
         }
     });
 
     let mut go = move |i: usize| {
+        menu_open.set(false); // 点击导航项一律关闭移动端抽屉（含当前激活项）
         if *tab.read() == i {
             return;
         }
@@ -142,7 +155,6 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
         }
         // 选中叶子时祖先分组强制展开
         open_groups.write().insert("subs");
-        menu_open.set(false); // 选中导航项关闭移动端抽屉
         if i < 2 {
             open_groups.write().insert("single");
         }
@@ -190,7 +202,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
             let et: &web_sys::EventTarget = w.unchecked_ref();
             let _ = et.add_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref());
         }
-        cb.forget();
+        KEYDOWN_LISTENER.with(|cell| *cell.borrow_mut() = Some(cb));
     });
     use_effect(move || {
         let open = *menu_open.read();
@@ -204,6 +216,35 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                 let _ = body.style().remove_property("overflow");
             }
         }
+    });
+
+    // 卸载钩子（dioxus 0.8 alpha 的 use_on_unmount 已废弃，实际导出为 use_drop，
+    // 见 dioxus-hooks/src/use_on_destroy.rs → dioxus-core use_drop）：
+    // 恢复 body 滚动（scroll-lock 不得残留到登录页）+ 移除两个页面级监听器，
+    // 防止卸载后任何回调写已丢弃的信号（wasm panic=abort 会整页冻结）。
+    use_drop(|| {
+        if let Some(body) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.body())
+        {
+            let _ = body.style().remove_property("overflow");
+        }
+        MQ_LISTENER.with(|cell| {
+            if let Some((mql, cb)) = cell.borrow_mut().take() {
+                let et: &web_sys::EventTarget = mql.unchecked_ref();
+                let _ =
+                    et.remove_event_listener_with_callback("change", cb.as_ref().unchecked_ref());
+            }
+        });
+        KEYDOWN_LISTENER.with(|cell| {
+            if let Some(cb) = cell.borrow_mut().take() {
+                if let Some(w) = web_sys::window() {
+                    let et: &web_sys::EventTarget = w.unchecked_ref();
+                    let _ =
+                        et.remove_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref());
+                }
+            }
+        });
     });
 
     // pending 等于当前 tab 时(首次登录的默认页)无旧页可保持,渲染全页 loading。

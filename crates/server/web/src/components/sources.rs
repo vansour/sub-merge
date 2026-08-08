@@ -200,7 +200,7 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
                             if enabled { "启用" } else { "停用" }
                         }
                     }
-                    td { "data-label": "操作",
+                    td { "data-label": "操作", class: "cell-actions",
                         div { class: "actions",
                             button { class: "btn btn-ghost btn-sm", onclick: move |_| toggle(id, enabled), disabled: busy,
                                 {icon(if enabled { "x" } else { "check" }, 13)}
