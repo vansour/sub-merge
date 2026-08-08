@@ -76,7 +76,7 @@ pub fn ClashConfig(token: Signal<Option<String>>) -> Element {
             textarea {
                 class: "clash-template",
                 rows: "24",
-                placeholder: "mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n\nrules:\n  - MATCH,🚀 节点选择",
+                placeholder: "mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n\nrules:\n  - MATCH,节点选择",
                 value: draft,
                 oninput: move |e| draft.set(e.value()),
             }

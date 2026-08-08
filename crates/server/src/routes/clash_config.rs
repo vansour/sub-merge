@@ -57,3 +57,34 @@ async fn put_config(
         template: b.template,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_template_is_valid_and_survives_subscription_serialization() {
+        // 出厂 default_template 字面量必须能被 serialize_clash_subscription 消费：
+        // 非法 YAML 或结构漂移会让 /subscribe 输出 500，只能靠此测试在 CI 兜住。
+        let tpl = default_template();
+        let out = proxy_core::formats::clash::serialize_clash_subscription(
+            &tpl,
+            "grp",
+            "http://example.com/subscribe/grp?format=v2ray",
+        )
+        .unwrap();
+        // 系统段：单组节点选择 + provider
+        let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).unwrap();
+        let groups = v["proxy-groups"].as_sequence().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0]["name"].as_str().unwrap(), "节点选择");
+        assert_eq!(v["proxy-providers"].as_mapping().unwrap().len(), 1);
+        // 模板段：dns + 5 个 rule-providers + 6 条 rules 全部存活
+        assert!(v["dns"].is_mapping(), "dns 段保留");
+        let providers = v["rule-providers"].as_mapping().unwrap();
+        assert_eq!(providers.len(), 5, "5 个规则集保留");
+        let rules = v["rules"].as_sequence().unwrap();
+        assert_eq!(rules.len(), 6, "6 条规则保留");
+        assert!(!out.contains("substore"));
+    }
+}
