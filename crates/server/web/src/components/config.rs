@@ -68,6 +68,17 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
             .map(|c| c.v2ray_base64)
             .unwrap_or(true)
     });
+    // 缓存数据迟到（单元 Error 后刷新成功）时采纳服务端值；仅首次，不覆盖用户编辑。
+    // effect 内读 data.config（实时信号）保证单元刷新回写后重跑；draft_adopted 只放行一次。
+    let mut draft_adopted = use_signal(|| false);
+    use_effect(move || {
+        if !draft_adopted() {
+            if let Some(c) = data.config.read().data.as_ref() {
+                v2ray_b64.set(c.v2ray_base64);
+                draft_adopted.set(true);
+            }
+        }
+    });
     let setting_saving = use_signal(|| false);
     let toasts = use_toast();
     let save_setting = move |_| {

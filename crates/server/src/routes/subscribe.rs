@@ -91,16 +91,22 @@ pub async fn subscribe_handler(
         )));
     }
 
-    // v2ray 分支按设置选输出形态：base64（默认）或纯 URI 文本行
-    let body = if crate::db::get_setting(&state.pool, crate::routes::config::V2RAY_B64_KEY)
-        .await?
-        .as_deref()
-        != Some("0")
-    {
-        serialize_nodes(&nodes, format).map_err(|e| ApiError::internal(e.to_string()))?
-    } else {
-        proxy_core::formats::v2ray::serialize_v2ray_plain(&nodes)
-            .map_err(|e| ApiError::internal(e.to_string()))?
+    // v2ray 分支按设置选输出形态：base64（默认）或纯 URI 文本行。
+    // 显式 match：未来新增格式不会静默落入 v2ray-plain 输出。
+    let body = match format {
+        OutputFormat::Clash => unreachable!("clash 分支已早返回（订阅组模式）"),
+        OutputFormat::V2ray => {
+            if crate::db::get_setting(&state.pool, crate::routes::config::V2RAY_B64_KEY)
+                .await?
+                .as_deref()
+                != Some("0")
+            {
+                serialize_nodes(&nodes, format).map_err(|e| ApiError::internal(e.to_string()))?
+            } else {
+                proxy_core::formats::v2ray::serialize_v2ray_plain(&nodes)
+                    .map_err(|e| ApiError::internal(e.to_string()))?
+            }
+        }
     };
 
     // text/plain：浏览器直接渲染（不触发下载）；mihomo/clash 客户端拉取订阅

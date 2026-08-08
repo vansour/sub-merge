@@ -685,9 +685,9 @@ async fn config_v2ray_base64_setting_roundtrip() {
 
 #[tokio::test]
 async fn subscribe_v2ray_plain_when_setting_off() {
-    // mock 源（ss 节点）+ 组合 → PUT v2ray_base64=false → GET /subscribe/grp?format=v2ray
-    // 断言：body 含 "ss://"（纯 URI 行），不含 base64 特征（base64 无 '://' 明文）
-    // 再开回 true → 断言 body 不含 "ss://"（base64 包裹）
+    // mock 源（ss 节点）+ 组合：新库缺省（无 settings 行）→ base64（解码后含节点）；
+    // PUT v2ray_base64=false → 纯 URI 行（body 含 "ss://" 明文）；
+    // 再开回 true → base64（解码后含节点，body 无明文 "ss://"）
     let mock = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/sub"))
@@ -730,6 +730,16 @@ async fn subscribe_v2ray_plain_when_setting_off() {
     let app = server::routes::build_router(pool, cfg).await;
     let admin = setup_admin(&app).await;
 
+    // 新库缺省（尚未 PUT，无 settings 行）→ base64：解码后含节点
+    let (s, body) = http_raw(&app, "GET", "/subscribe/grp?format=v2ray", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    let decoded = b64_decode(&body);
+    assert!(
+        decoded.contains("ss://"),
+        "缺省 base64 输出解码后含节点，got: {decoded}"
+    );
+    assert!(decoded.contains("#A"), "节点名保留，got: {decoded}");
+
     // 关闭 base64 → 纯 URI 文本行
     let (s, _) = http(
         &app,
@@ -745,7 +755,7 @@ async fn subscribe_v2ray_plain_when_setting_off() {
     assert!(body.contains("ss://"), "纯 URI 行输出，got: {body}");
     assert!(body.contains("#A"), "节点名保留，got: {body}");
 
-    // 开回 base64 → base64 包裹（明文无 '://'）
+    // 开回 base64 → base64 包裹：解码后含节点，明文无 '://'
     let (s, _) = http(
         &app,
         "PUT",
@@ -757,6 +767,12 @@ async fn subscribe_v2ray_plain_when_setting_off() {
     assert_eq!(s, StatusCode::OK);
     let (s, body) = http_raw(&app, "GET", "/subscribe/grp?format=v2ray", None, None).await;
     assert_eq!(s, StatusCode::OK);
+    let decoded = b64_decode(&body);
+    assert!(
+        decoded.contains("ss://"),
+        "开回 base64 输出解码后含节点，got: {decoded}"
+    );
+    assert!(decoded.contains("#A"), "节点名保留，got: {decoded}");
     assert!(
         !body.contains("ss://"),
         "base64 输出不含明文 URI，got: {body}"
