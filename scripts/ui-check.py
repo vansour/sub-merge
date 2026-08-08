@@ -117,21 +117,6 @@ def click_nav_exact(ws, label):
     ev(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='%s').click()" % label)
     time.sleep(0.3)
 
-def preview_rows(ws):
-    """预览区节点表格行数（页面另有「订阅源列表」表格，同用 .table-wrap tbody tr）。
-
-    按卡片标题「预览」定位预览卡片再数行：比 :last-of-type 稳（预览卡片后面的
-    弹窗/后续卡片不影响），也比 .preview-toolbar ~ .table-wrap 语义稳（组件
-    内部结构变化不敏感）。卡片缺失时返回 null，让调用方断言自然失败。"""
-    return ev(ws, "(()=>{const c=Array.from(document.querySelectorAll('.card')).find(c=>c.querySelector('h2.card-title')?.textContent==='预览');return c?c.querySelectorAll('.table-wrap tbody tr').length:null})()")
-
-def click_refresh(ws):
-    """点预览区「刷新预览」按钮;页面无该按钮时回退到任一「刷新」按钮。
-
-    不用 `x?.click() ?? y.click()` 形式:click() 返回 undefined(nullish),
-    ?? 右侧仍会执行导致双重点击。"""
-    ev(ws, "(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新预览'))||Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('刷新'));if(b)b.click();})()")
-
 def assert_true(cond, name):
     print(("PASS " if cond else "FAIL ") + name)
     if not cond:
@@ -235,31 +220,6 @@ def scenario_nav_preload(ws):
     cmd(ws, "Network.emulateNetworkConditions",
         {"offline": False, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1})
 
-def scenario_first_load_failure(ws):
-    """首次加载失败(预览区请求):预览区错误文本 + 页面仍切换(单元失败不再阻塞——本地订阅仅需 sources 单元)。
-
-    用 CDP 请求拦截让 /admin/preview 首次请求即失败。种源不可行:单条节点解析失败的
-    URI / 指向死端口的 remote 源,服务端只返回 200 + 源错误列表(单元仍 Ready),
-    不会进入 CacheStatus::Error —— 拦截请求才能真实覆盖错误可见路径。"""
-    cmd(ws, "Network.enable")
-    cmd(ws, "Network.setBlockedURLs", {"urls": ["*admin/preview*"]})
-    cmd(ws, "Page.enable"); cmd(ws, "Runtime.enable")
-    time.sleep(2)
-    for _ in range(20):
-        if ev(ws, "document.readyState") == "complete":
-            break
-        time.sleep(0.5)
-    # 登录走 API(setup-status/login 不在拦截范围),再注入会话刷新页面
-    login(ws)
-    # 初始 tab=0(本地订阅)仅需 sources 单元:不被 preview 拦截阻塞,页面照常切换。
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')", timeout=15), "初始页切换(本地订阅激活)")
-    # 预览区挂载自动拉取被拦截失败 → 预览区错误文本
-    assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "预览区出现错误文本(拦截失败)")
-    # 解除拦截,点预览区刷新 → 恢复
-    cmd(ws, "Network.setBlockedURLs", {"urls": []})
-    click_refresh(ws)
-    assert_true(wait_until(ws, "!document.querySelector('.error-text')", timeout=15), "解除后刷新恢复(错误消失)")
-
 def scenario_sources_crud(ws):
     """本地订阅页添加源 → 计数徽章 +1(原概览统计断言迁移)。"""
     login(ws)
@@ -275,143 +235,6 @@ def scenario_sources_crud(ws):
     assert_true(wait_until(ws, "document.body.innerText.includes('crud-test')"), "添加后列表出现新源")
     assert_true(wait_until(ws, "parseInt(Array.from(document.querySelectorAll('.card h2 + .badge, .card-title + .badge'))[0]?.textContent ?? '0', 10) === %d" % (n0 + 1)), "计数徽章 +1(缓存回写)")
     cleanup_source("crud-test")
-
-def scenario_preview_filter(ws):
-    """组合订阅页:预览下拉切换组合(节点表渲染)。"""
-    import urllib.request as u
-    ensure_session()
-    # 确保 c-test 组合存在(combineds 场景会创建;缺失时经 API 补建,成员取首个源)
-    req = u.Request(URL + "/admin/combineds", headers={"Authorization": "Bearer " + SESSION_TOKEN})
-    with u.urlopen(req, timeout=5) as r:
-        combos = json.loads(r.read())
-    if not any(c.get("name") == "c-test" for c in combos):
-        req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer " + SESSION_TOKEN})
-        with u.urlopen(req, timeout=5) as r:
-            sources = json.loads(r.read())
-        if not sources:
-            # 空 DB：先经 API 种一个 single 源（与 seed_sources 相同节点形态），再取 first_id
-            u.urlopen(u.Request(URL + "/admin/sources", method="POST",
-                                data=json.dumps({"name": "c-seed",
-                                                 "url": "vless://e99a8e5a-6b2b-4a1d-9c5f-1a2b3c4d5e6f@1.2.3.4:443#c-seed",
-                                                 "kind": "single"}).encode(),
-                                headers={"Authorization": "Bearer " + SESSION_TOKEN,
-                                         "Content-Type": "application/json"}), timeout=5)
-            req = u.Request(URL + "/admin/sources", headers={"Authorization": "Bearer " + SESSION_TOKEN})
-            with u.urlopen(req, timeout=5) as r:
-                sources = json.loads(r.read())
-        first_id = sources[0]["id"]
-        req = u.Request(URL + "/admin/combineds", method="POST",
-                        data=json.dumps({"name": "c-test", "source_ids": [first_id]}).encode(),
-                        headers={"Authorization": "Bearer " + SESSION_TOKEN, "Content-Type": "application/json"})
-        u.urlopen(req, timeout=5)
-    seed_sources(ws, 2)
-    login(ws)
-    click_nav_exact(ws, "组合订阅")
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='组合订阅').classList.contains('active')"), "组合订阅就绪")
-    # 预览下拉出现 c-test 选项 → 切换 → 节点表渲染
-    assert_true(wait_until(ws, "!!Array.from(document.querySelectorAll('.preview-filter option')).find(o=>o.textContent==='c-test')"), "预览下拉出现 c-test")
-    ev(ws, "(()=>{const sel=document.querySelector('.preview-filter');const t=Array.from(sel.options).find(o=>o.textContent==='c-test');sel.value=t.value;sel.dispatchEvent(new Event('change',{bubbles:true}));})()")
-    # c-test 恒 1 成员 1 节点 → 切换后表格行数确定性 === 1。重拉期间旧 data 保留
-    # （行数可能是旧值），wait_until 轮询直到重拉完成行数收敛为 1。
-    assert_true(wait_until(ws, "document.querySelectorAll('.table-wrap tbody tr').length === 1", timeout=10), "过滤视图只显示该组合成员")
-
-def find_server():
-    """定位 :18080 的 server 进程(Linux /proc 扫描,按 PORT=18080 过滤,避免误伤其他 server)。
-
-    鉴权已改为用户名+密码,不再需要预设 token 环境变量,故只按 PORT 过滤。"""
-    import os
-    hits = []
-    for pid in os.listdir("/proc"):
-        if not pid.isdigit():
-            continue
-        try:
-            with open("/proc/%s/environ" % pid, "rb") as f:
-                env = f.read().decode("utf-8", "replace").split("\0")
-        except OSError:
-            continue
-        if "PORT=18080" not in env:
-            continue
-        try:
-            exe = os.readlink("/proc/%s/exe" % pid)
-            cwd = os.readlink("/proc/%s/cwd" % pid)
-        except OSError:
-            continue
-        # 运行期间二进制被重新构建替换时,/proc/PID/exe 会带 " (deleted)" 后缀,
-        # 直接重启会 FileNotFoundError——剥掉后缀用当前路径上的新二进制重启。
-        if exe.endswith(" (deleted)"):
-            exe = exe[: -len(" (deleted)")]
-        hits.append((pid, exe, cwd, env))
-    return hits
-
-def wait_healthz(timeout=20):
-    """等待 :18080 /healthz 返回 200。"""
-    for _ in range(int(timeout / 0.5)):
-        try:
-            with urllib.request.urlopen(URL + "/healthz", timeout=1) as r:
-                if r.status == 200:
-                    return True
-        except Exception:
-            pass
-        time.sleep(0.5)
-    return False
-
-def restart_server(pid, exe, cwd, envmap, logpath):
-    """确保旧进程退出(等退出,超时 SIGKILL)后按原 exe/cwd/env 重启 server。
-
-    pid 已不存在时直接启动(幂等)。调用方随后用 wait_healthz 断言存活。"""
-    import os, signal, subprocess
-    if os.path.exists("/proc/" + pid):
-        for _ in range(20):
-            if not os.path.exists("/proc/" + pid):
-                break
-            time.sleep(0.5)
-    if os.path.exists("/proc/" + pid):
-        try:
-            os.kill(int(pid), signal.SIGKILL)
-        except OSError:
-            pass
-        time.sleep(0.5)
-    log = open(logpath, "ab")
-    subprocess.Popen([exe], cwd=cwd, env=envmap, stdout=log, stderr=log, start_new_session=True)
-
-def scenario_refresh_failure(ws):
-    """刷新失败:停 server → 预览区「刷新预览」→ 错误文本出现 + 旧数据(节点行)保留 → 重启恢复。"""
-    import os, signal
-    hits = find_server()
-    assert_true(len(hits) > 0, "找到 :18080 server 进程")
-    pid, exe, cwd, env = hits[0]
-    envmap = dict(kv.split("=", 1) for kv in env if "=" in kv)
-    # 种 1 个源保证预览区有节点可渲染(行数断言需要旧数据)
-    seed_sources(ws, 1)
-    login(ws)
-    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
-    # 预览区挂载自动拉取:等「共 N 个节点」徽章渲染(数据就绪信号),记录预览表格行数
-    assert_true(wait_until(ws, "!!document.querySelector('.preview-toolbar .badge')"), "预览区已加载(节点徽章渲染)")
-    rows0 = preview_rows(ws)
-    assert_true(isinstance(rows0, int) and rows0 > 0, "预览表格行已渲染(%d)" % (rows0 if isinstance(rows0, int) else -1))
-    try:
-        # 停 server
-        for p, _, _, _ in hits:
-            try:
-                os.kill(int(p), signal.SIGTERM)
-            except OSError:
-                pass
-        for _ in range(20):
-            if not os.path.exists("/proc/" + pid):
-                break
-            time.sleep(0.5)
-        assert_true(not os.path.exists("/proc/" + pid), "server 已停止")
-        # 点预览区刷新:旧数据应保留 + 错误文本出现(修复前 Error 清空 data,表格行消失)
-        click_refresh(ws)
-        assert_true(wait_until(ws, "!!document.querySelector('.error-text')", timeout=10), "刷新失败后错误文本出现")
-        assert_true(preview_rows(ws) == rows0, "刷新失败后预览表格行数不变(旧数据保留)")
-    finally:
-        # 恢复:断言失败也不留死 server(死 server 会让后续场景全部 401/挂起)
-        restart_server(pid, exe, cwd, envmap, "/tmp/submerge-server-restart.log")
-    assert_true(wait_healthz(), "server 重启成功(/healthz 200)")
-    # 恢复:再次刷新,错误消失
-    click_refresh(ws)
-    assert_true(wait_until(ws, "!document.querySelector('.error-text')", timeout=10), "重启后刷新恢复,错误消失")
 
 def scenario_config_password(ws):
     """配置页:账号卡片渲染用户名(缓存读取);改密后全部会话失效被踢回登录页;新密码重新登录。
@@ -505,6 +328,42 @@ def scenario_combineds(ws):
     ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('保存')).click()")
     assert_true(wait_until(ws, "document.body.innerText.includes('c-test')"), "保存后列表出现 c-test")
 
+def scenario_preview(ws):
+    """预览弹窗：订阅源行内预览 → 全屏弹窗节点渲染 → 关闭；组合页行内预览同样。
+
+    组合部分：c-test 已在列表则直接点行内预览，缺失则复用 scenario_combineds 的
+    创建流程（新建组合 → 名称 → 勾选成员 → 保存）再预览。c-test 恒 1 成员 1 节点
+    （所有 seed 源均为单节点 vless），弹窗行数确定性 === 1。"""
+    seed_sources(ws, 1)
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
+    # 行内三按钮存在（预览/编辑/删除）
+    assert_true(ev(ws, "['预览','编辑','删除'].every(t=>Array.from(document.querySelectorAll('.table-wrap-sources .cell-actions .btn')).some(b=>b.textContent.trim()===t))") is True, "行内三按钮（预览/编辑/删除）存在")
+    # 行内预览 → 全屏弹窗 → 节点渲染 → 关闭
+    ev(ws, "Array.from(document.querySelectorAll('.table-wrap-sources .cell-actions .btn')).find(b=>b.textContent.includes('预览')).click()")
+    assert_true(wait_until(ws, "!!document.querySelector('.fullscreen-modal')"), "全屏预览弹窗出现")
+    assert_true(wait_until(ws, "!!document.querySelector('.fullscreen-modal .table-wrap tbody tr')", timeout=10), "预览节点渲染")
+    ev(ws, "Array.from(document.querySelectorAll('.fullscreen-modal .btn')).find(b=>b.textContent.includes('关闭')).click()")
+    assert_true(wait_until(ws, "!document.querySelector('.fullscreen-modal')"), "关闭后弹窗消失")
+    # 组合页：行内预览同样
+    click_nav_exact(ws, "组合订阅")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='组合订阅').classList.contains('active')"), "组合订阅就绪")
+    if not ev(ws, "!!Array.from(document.querySelectorAll('.combined-row')).find(r=>r.querySelector('.combined-name')?.textContent==='c-test')"):
+        # c-test 缺失：复用 scenario_combineds 创建流程
+        ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('新建组合')).click()")
+        time.sleep(0.5)
+        ev(ws, "(()=>{const el=document.querySelector('.modal input');const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;s.call(el,'c-test');el.dispatchEvent(new Event('input',{bubbles:true}));})()")
+        ev(ws, "document.querySelector('.member-row input').click()")
+        time.sleep(0.3)
+        ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('保存')).click()")
+        assert_true(wait_until(ws, "document.body.innerText.includes('c-test')"), "保存后组合列表出现 c-test")
+    # c-test 行内预览 → 弹窗节点（1 成员 1 节点）→ 关闭
+    ev(ws, "(()=>{const r=Array.from(document.querySelectorAll('.combined-row')).find(r=>r.querySelector('.combined-name')?.textContent==='c-test');Array.from(r.querySelectorAll('.actions .btn')).find(b=>b.textContent.includes('预览')).click();})()")
+    assert_true(wait_until(ws, "!!document.querySelector('.fullscreen-modal')"), "组合行内预览弹窗出现")
+    assert_true(wait_until(ws, "document.querySelectorAll('.fullscreen-modal .table-wrap tbody tr').length === 1", timeout=10), "组合预览节点渲染（1 成员 1 节点）")
+    ev(ws, "Array.from(document.querySelectorAll('.fullscreen-modal .btn')).find(b=>b.textContent.includes('关闭')).click()")
+    assert_true(wait_until(ws, "!document.querySelector('.fullscreen-modal')"), "组合预览关闭后弹窗消失")
+
 def scenario_responsive(ws):
     """响应式适配：视口矩阵无水平溢出 + 移动端抽屉可达性（导航全可达）+ 跨断点 resize 跟随。
 
@@ -549,11 +408,9 @@ def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
-                 "combineds": scenario_combineds, "preview_filter": scenario_preview_filter,
-                 "refresh_failure": scenario_refresh_failure,
+                 "combineds": scenario_combineds, "preview": scenario_preview,
                  "config_password": scenario_config_password,
                  "clash_config": scenario_clash_config,
-                 "first_load_failure": scenario_first_load_failure,
                  "responsive": scenario_responsive}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
