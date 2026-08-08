@@ -46,6 +46,25 @@ fn clash_yaml_has_proxies_and_groups() {
 }
 
 #[test]
+fn clash_skips_unserializable_node() {
+    // wireguard 节点可解析但缺 privateKey 序列化失败（proxy_to_clash 返回 Err，
+    // if let Ok 跳过）；ss 节点正常。输出只含正常节点，不因坏节点失败。
+    let nodes = vec![
+        ss_node("h", "h", 8388),
+        proxy_core::parser::parse_line(
+            "wireguard://cHVibGljS2V5MTIz@1.2.3.4:443?publicKey=cHVibGljS2V5MTIz#WG",
+        )
+        .unwrap(),
+    ];
+    let out = serialize_clash(&nodes).unwrap();
+    assert!(
+        out.contains("name: h") && out.contains("port: 8388"),
+        "正常节点保留"
+    );
+    assert!(!out.contains("WG"), "不可序列化节点被跳过");
+}
+
+#[test]
 fn v2ray_subscription_uri_lines() {
     let nodes = vec![ss_node("A", "1.2.3.4", 8388)];
     let out = serialize_v2ray(&nodes).unwrap();

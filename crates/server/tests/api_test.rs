@@ -341,21 +341,23 @@ async fn subscribe_singbox_format_returns_400() {
         .unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
-    let resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/subscribe/grp?format=singbox")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        StatusCode::BAD_REQUEST,
-        "singbox 已移除，应 400"
-    );
+    for fmt in ["singbox", "sing-box", "json"] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/subscribe/grp?format={fmt}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "格式 {fmt} 已移除/不支持，应 400"
+        );
+    }
 }
 
 #[tokio::test]

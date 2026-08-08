@@ -1,4 +1,4 @@
-// 组合订阅页：组合列表（成员数 + 三种格式链接复制）+ 新建/编辑弹窗（名字 + 成员勾选）。
+// 组合订阅页：组合列表（成员数 + 两种格式链接复制）+ 新建/编辑弹窗（名字 + 成员勾选）。
 // 数据读 DataStore 缓存（MainShell 预载）；保存/删除成功后 refresh 回写。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
@@ -232,7 +232,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             let base = web_sys::window()
                 .and_then(|w| w.location().origin().ok())
                 .unwrap_or_default();
-            // 三种格式的链接按钮（预渲染，与行/成员行同模式）。
+            // 两种格式的链接按钮（预渲染，与行/成员行同模式）。
             // 订阅链接在 rsx 外拼装：rsx 内嵌 format! 的 {} 会被误判为插值（见 config.rs）。
             // move 闭包按值捕获 name，map 内逐次 clone，避免首轮即 move 掉外层 String。
             let link_buttons: Vec<Element> = ["clash", "v2ray"]
