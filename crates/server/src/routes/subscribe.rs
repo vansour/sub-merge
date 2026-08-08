@@ -71,7 +71,7 @@ pub async fn subscribe_handler(
         )
         .map_err(|e| ApiError::internal(e.to_string()))?;
         return Ok(Response::builder()
-            .header("content-type", "application/x-yaml")
+            .header("content-type", "text/plain; charset=utf-8")
             .header("profile-update-interval", "24")
             .body(axum::body::Body::from(body))
             .unwrap());
