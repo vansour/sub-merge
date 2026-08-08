@@ -14,7 +14,6 @@ pub struct SourceDto {
     pub url: String,
     pub name: String,
     pub kind: String,
-    pub enabled: bool,
     pub created_at: String,
 }
 
@@ -30,7 +29,6 @@ pub struct UpdateSource {
     pub url: Option<String>,
     pub name: Option<String>,
     pub kind: Option<String>,
-    pub enabled: Option<bool>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -49,7 +47,7 @@ async fn list_sources(
 ) -> Result<Json<Vec<SourceDto>>, ApiError> {
     require_admin(State(state.clone()), headers).await?;
     let rows = sqlx::query_as::<_, SourceDto>(
-        "SELECT id, url, name, kind, enabled, created_at FROM sources ORDER BY id",
+        "SELECT id, url, name, kind, created_at FROM sources ORDER BY id",
     )
     .fetch_all(&state.pool)
     .await?;
@@ -71,22 +69,19 @@ async fn create_source(
         return Err(ApiError::bad_request("kind must be 'single' or 'remote'"));
     }
     let created_at = chrono::Utc::now().to_rfc3339(); // 或手写时间
-    let res = sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind(&body.url)
-    .bind(&body.name)
-    .bind(&kind)
-    .bind(&created_at)
-    .execute(&state.pool)
-    .await?;
+    let res = sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind(&body.url)
+        .bind(&body.name)
+        .bind(&kind)
+        .bind(&created_at)
+        .execute(&state.pool)
+        .await?;
     let id = res.last_insert_rowid();
     let dto = SourceDto {
         id,
         url: body.url,
         name: body.name,
         kind,
-        enabled: true,
         created_at,
     };
     Ok((axum::http::StatusCode::CREATED, Json(dto)))
@@ -103,7 +98,7 @@ async fn update_source(
     let Json(body) = body.map_err(ApiError::from)?;
     // 先取现有
     let existing = sqlx::query_as::<_, SourceDto>(
-        "SELECT id, url, name, kind, enabled, created_at FROM sources WHERE id = ?",
+        "SELECT id, url, name, kind, created_at FROM sources WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -116,13 +111,11 @@ async fn update_source(
     if !matches!(kind.as_str(), "single" | "remote") {
         return Err(ApiError::bad_request("kind must be 'single' or 'remote'"));
     }
-    let enabled = body.enabled.unwrap_or(existing.enabled);
 
-    sqlx::query("UPDATE sources SET url = ?, name = ?, kind = ?, enabled = ? WHERE id = ?")
+    sqlx::query("UPDATE sources SET url = ?, name = ?, kind = ? WHERE id = ?")
         .bind(&url)
         .bind(&name)
         .bind(&kind)
-        .bind(enabled)
         .bind(id)
         .execute(&state.pool)
         .await?;
@@ -132,7 +125,6 @@ async fn update_source(
         url,
         name,
         kind,
-        enabled,
         created_at: existing.created_at,
     };
     Ok(Json(dto))
@@ -164,7 +156,7 @@ async fn refresh_source(
     let Path(id) = id.map_err(ApiError::from)?;
     // 实时拉取模式下，refresh 即对该源重新抓取并报告结果
     let source = sqlx::query_as::<_, SourceDto>(
-        "SELECT id, url, name, kind, enabled, created_at FROM sources WHERE id = ?",
+        "SELECT id, url, name, kind, created_at FROM sources WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&state.pool)

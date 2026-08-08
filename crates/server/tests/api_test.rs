@@ -252,14 +252,13 @@ async fn subscribe_returns_subscription() {
 
     // 插入一个指向 mock server 的源
     let url = format!("{}/sub", mock.uri());
-    let res =
-        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-            .bind(&url)
-            .bind("mock-source")
-            .bind("now")
-            .execute(&pool)
-            .await
-            .unwrap();
+    let res = sqlx::query("INSERT INTO sources (url, name, created_at) VALUES (?, ?, ?)")
+        .bind(&url)
+        .bind("mock-source")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
     let src_id = res.last_insert_rowid();
     // 建组合勾选该源
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
@@ -410,7 +409,7 @@ async fn fetch_and_merge_respects_concurrency_cap() {
     // 插入 6 个源，全部指向同一台并发计数服务器。
     for i in 0..6 {
         let url = format!("http://{}/s{}", addr, i);
-        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+        sqlx::query("INSERT INTO sources (url, name, created_at) VALUES (?, ?, ?)")
             .bind(&url)
             .bind(format!("src-{i}"))
             .bind("now")
@@ -545,21 +544,6 @@ async fn admin_crud_sources() {
     let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
 
-    // update enabled=false
-    let resp = app
-        .clone()
-        .oneshot(auth(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/admin/sources/{}", id))
-                .header("content-type", "application/json")
-                .body(Body::from(json!({"enabled": false}).to_string()))
-                .unwrap(),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
     // delete
     let resp = app
         .clone()
@@ -606,7 +590,7 @@ async fn preview_returns_node_list() {
     let tmp = fresh_tmp("preview");
     let pool = test_pool(&tmp).await;
     let url = format!("{}/sub", mock.uri());
-    sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+    sqlx::query("INSERT INTO sources (url, name, created_at) VALUES (?, ?, ?)")
         .bind(&url)
         .bind("mock")
         .bind("now")
@@ -759,7 +743,7 @@ async fn rejection_non_numeric_id_returns_unified_json() {
                 .uri("/admin/sources/abc")
                 .header("authorization", format!("Bearer {}", admin))
                 .header("content-type", "application/json")
-                .body(Body::from(json!({"enabled": false}).to_string()))
+                .body(Body::from(json!({"name": "x"}).to_string()))
                 .unwrap(),
         )
         .await
@@ -810,14 +794,13 @@ async fn subscribe_skips_unsupported_protocol_in_v2ray() {
     let tmp = fresh_tmp("wg-skip");
     let pool = test_pool(&tmp).await;
     let url = format!("{}/sub", mock.uri());
-    let res =
-        sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
-            .bind(&url)
-            .bind("mock")
-            .bind("now")
-            .execute(&pool)
-            .await
-            .unwrap();
+    let res = sqlx::query("INSERT INTO sources (url, name, created_at) VALUES (?, ?, ?)")
+        .bind(&url)
+        .bind("mock")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
     let src_id = res.last_insert_rowid();
     // 建组合勾选该源
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
@@ -1040,7 +1023,8 @@ async fn static_index_served_from_dist() {
 
 #[tokio::test]
 async fn legacy_db_without_kind_column_is_migrated() {
-    // 模拟早期版本建的表（无 kind 列）：init_db 应 ALTER 迁移成功并保留数据
+    // 模拟早期版本建的表（无 kind 列、含 enabled 列）：init_db 应 ALTER 迁移成功
+    //（加 kind、DROP COLUMN 移除 enabled）并保留数据
     let tmp = fresh_tmp("legacy");
     let db_path = tmp.join("test.db");
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -1063,7 +1047,7 @@ async fn legacy_db_without_kind_column_is_migrated() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO sources (url, name, enabled, created_at) VALUES ('https://old.example/sub', 'old', 1, '2026-01-01')",
+        "INSERT INTO sources (url, name, created_at) VALUES ('https://old.example/sub', 'old', '2026-01-01')",
     )
     .execute(&pool)
     .await
@@ -1138,27 +1122,23 @@ async fn single_source_parses_without_network() {
         .mount(&mock)
         .await;
     let url = format!("{}/sub", mock.uri());
-    sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind(&url)
-    .bind("remote-src")
-    .bind("remote")
-    .bind("now")
-    .execute(&state.pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind(&url)
+        .bind("remote-src")
+        .bind("remote")
+        .bind("now")
+        .execute(&state.pool)
+        .await
+        .unwrap();
     // single 源：服务器地址 127.0.0.1:1（连接必然失败），若被 fetch 则产生源错误
-    sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#SINGLE")
-    .bind("single-src")
-    .bind("single")
-    .bind("now")
-    .execute(&state.pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#SINGLE")
+        .bind("single-src")
+        .bind("single")
+        .bind("now")
+        .execute(&state.pool)
+        .await
+        .unwrap();
 
     let (nodes, errors) = server::service::fetch_and_merge(&state, None).await;
     assert!(
@@ -1180,16 +1160,14 @@ async fn invalid_single_source_reports_source_error() {
     let cfg = test_config(&tmp);
     let state = server::state::AppState::new(pool, cfg);
 
-    sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind("this is not a node uri")
-    .bind("bad-src")
-    .bind("single")
-    .bind("now")
-    .execute(&state.pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind("this is not a node uri")
+        .bind("bad-src")
+        .bind("single")
+        .bind("now")
+        .execute(&state.pool)
+        .await
+        .unwrap();
 
     let (nodes, errors) = server::service::fetch_and_merge(&state, None).await;
     assert!(nodes.is_empty());
@@ -1318,15 +1296,14 @@ async fn refresh_single_source_reports_locally() {
     };
 
     // kind=single 源：本地解析单条 ss 链接，不拉网络
-    let res = sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, 'single', 1, ?)",
-    )
-    .bind("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S")
-    .bind("single-ok")
-    .bind("now")
-    .execute(&pool)
-    .await
-    .unwrap();
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'single', ?)")
+            .bind("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S")
+            .bind("single-ok")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
     let id = res.last_insert_rowid();
 
     let resp = app
@@ -1349,15 +1326,14 @@ async fn refresh_single_source_reports_locally() {
     assert_eq!(v["node_count"], serde_json::Value::Number(1.into()));
 
     // kind=single 源：URI 非法 → ok false，reason 含 parse failed
-    let res = sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, 'single', 1, ?)",
-    )
-    .bind("not a uri")
-    .bind("single-bad")
-    .bind("now")
-    .execute(&pool)
-    .await
-    .unwrap();
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'single', ?)")
+            .bind("not a uri")
+            .bind("single-bad")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
     let id2 = res.last_insert_rowid();
 
     let resp = app
@@ -1390,7 +1366,7 @@ async fn combined_tables_and_cascade() {
     let pool = test_pool(&tmp).await;
 
     // 建一个源 + 两个组合，源被两个组合共享
-    let res = sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S', 's', 1, 'now')")
+    let res = sqlx::query("INSERT INTO sources (url, name, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S', 's', 'now')")
         .execute(&pool).await.unwrap();
     let src_id = res.last_insert_rowid();
     let res = sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('a', 'now')")
@@ -1426,7 +1402,7 @@ async fn combined_tables_and_cascade() {
     assert_eq!(n, 0, "source deletion must cascade to combined_sources");
 
     // 删组合 a → 其成员关系清理（b 不受影响——重新插回源再验证）
-    let res = sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S2', 's2', 1, 'now')")
+    let res = sqlx::query("INSERT INTO sources (url, name, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S2', 's2', 'now')")
         .execute(&pool).await.unwrap();
     let src2 = res.last_insert_rowid();
     for cid in [ca, cb] {
@@ -1662,27 +1638,23 @@ async fn combined_subscription_serves_only_members() {
     let pool = test_pool(&tmp).await;
     let url = format!("{}/sub", mock.uri());
     // remote 源（mock，节点 IN）与 single 源（节点 OUT，指向不可达地址）
-    let res = sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind(&url)
-    .bind("in-src")
-    .bind("remote")
-    .bind("now")
-    .execute(&pool)
-    .await
-    .unwrap();
+    let res = sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind(&url)
+        .bind("in-src")
+        .bind("remote")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
     let in_id = res.last_insert_rowid();
-    sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#OUT")
-    .bind("out-src")
-    .bind("single")
-    .bind("now")
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#OUT")
+        .bind("out-src")
+        .bind("single")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // 组合只勾选 in-src
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
@@ -1783,7 +1755,7 @@ async fn combined_subscription_empty_members_returns_200() {
 async fn preview_combined_filter() {
     let tmp = fresh_tmp("preview-cmb");
     let pool = test_pool(&tmp).await;
-    let res = sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S1', 's1', 'single', 1, 'now')")
+    let res = sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#S1', 's1', 'single', 'now')")
         .execute(&pool)
         .await
         .unwrap();
@@ -1871,16 +1843,14 @@ async fn combined_subscription_all_members_failed_returns_502() {
     let pool = test_pool(&tmp).await;
 
     // remote 源：127.0.0.1:1 连接被立即拒绝，fetch_source 报错 → SourceError
-    let res = sqlx::query(
-        "INSERT INTO sources (url, name, kind, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind("http://127.0.0.1:1/sub")
-    .bind("dead-src")
-    .bind("remote")
-    .bind("now")
-    .execute(&pool)
-    .await
-    .unwrap();
+    let res = sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, ?, ?)")
+        .bind("http://127.0.0.1:1/sub")
+        .bind("dead-src")
+        .bind("remote")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
     let src_id = res.last_insert_rowid();
 
     // 建组合勾选该源
@@ -2250,9 +2220,9 @@ async fn preview_filters_by_kind() {
     let tmp = fresh_tmp("preview-kind");
     let pool = test_pool(&tmp).await;
     // single 源（不拉网络）+ remote 源（指向 127.0.0.1:1 必然失败 → 产生源错误但请求 200）
-    sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#LOCAL', 'local', 'single', 1, 'now')")
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#LOCAL', 'local', 'single', 'now')")
         .execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('http://127.0.0.1:1/sub', 'dead', 'remote', 1, 'now')")
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES ('http://127.0.0.1:1/sub', 'dead', 'remote', 'now')")
         .execute(&pool).await.unwrap();
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
@@ -2300,6 +2270,65 @@ async fn preview_filters_by_kind() {
 
     // 非法 kind → 400
     let (s, _) = http(&app, "GET", "/admin/preview?kind=bogus", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn preview_by_source_id_returns_that_source_nodes() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"),
+        )
+        .mount(&mock)
+        .await;
+    let tmp = fresh_tmp("prev-sid");
+    let pool = test_pool(&tmp).await;
+    let url = format!("{}/sub", mock.uri());
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'remote', ?)")
+            .bind(&url)
+            .bind("mock")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
+    let src_id = res.last_insert_rowid();
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
+
+    let (s, v) = http(
+        &app,
+        "GET",
+        &format!("/admin/preview?source_id={src_id}"),
+        None,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["total"].as_u64(), Some(1));
+    assert_eq!(v["nodes"][0]["name"].as_str(), Some("A"));
+
+    // 不存在 → 404；与 combined 互斥 → 400
+    let (s, _) = http(
+        &app,
+        "GET",
+        "/admin/preview?source_id=99999",
+        None,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = http(
+        &app,
+        "GET",
+        "/admin/preview?source_id=1&combined=grp",
+        None,
+        Some(&admin),
+    )
+    .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
@@ -2422,7 +2451,7 @@ async fn clash_config_get_put_and_subscription_output() {
     assert_eq!(s, StatusCode::UNAUTHORIZED);
 
     // 建组合 + 订阅 → clash 输出为订阅组模式（含 providers + 自定义 dns + use 引用）
-    sqlx::query("INSERT INTO sources (url, name, kind, enabled, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A', 's1', 'single', 1, 'now')")
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A', 's1', 'single', 'now')")
         .execute(&pool).await.unwrap();
     let src_id: i64 = sqlx::query_scalar("SELECT id FROM sources WHERE name = 's1'")
         .fetch_one(&pool)

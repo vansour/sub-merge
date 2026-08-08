@@ -13,7 +13,7 @@ pub struct SourceError {
     pub reason: String,
 }
 
-/// 并发拉取 enabled 源（受 cfg.concurrency 上限约束），解析合并。
+/// 并发拉取源（受 cfg.concurrency 上限约束），解析合并。
 /// source_ids = Some(ids) 时仅拉取指定源的子集（组合订阅）；None 拉取全部。
 /// 返回 (节点, 错误源列表)。
 pub async fn fetch_and_merge(
@@ -28,7 +28,7 @@ pub async fn fetch_and_merge(
                 .collect::<Vec<_>>()
                 .join(",");
             let mut q = sqlx::query(sqlx::AssertSqlSafe(format!(
-                "SELECT id, kind, name, url FROM sources WHERE enabled = 1 AND id IN ({placeholders})"
+                "SELECT id, kind, name, url FROM sources WHERE id IN ({placeholders})"
             )));
             for id in ids {
                 q = q.bind(id);
@@ -47,12 +47,10 @@ pub async fn fetch_and_merge(
         }
         // 空成员组合：无源可拉
         Some(_) => Vec::new(),
-        None => {
-            sqlx::query("SELECT id, kind, name, url FROM sources WHERE enabled = 1")
-                .fetch_all(&state.pool)
-                .await
-                .unwrap_or_default()
-        }
+        None => sqlx::query("SELECT id, kind, name, url FROM sources")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default(),
     }
     .into_iter()
     .map(|r| {

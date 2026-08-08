@@ -72,7 +72,7 @@ GET /subscribe/{name}?format=clash|v2ray
 | POST | /admin/login | 登录，返回会话 token |
 | POST | /admin/logout | 注销当前会话（幂等，204） |
 | GET/POST | /admin/sources | 列表 / 添加订阅源（`kind`: `single` 单条节点 \| `remote` 远程订阅，缺省 remote） |
-| PUT/DELETE | /admin/sources/{id} | 更新（url/name/kind/enabled）/ 删除 |
+| PUT/DELETE | /admin/sources/{id} | 更新（url/name/kind）/ 删除 |
 | POST | /admin/sources/{id}/refresh | 手动刷新单源 |
 | GET | /admin/preview | 转换结果预览（节点列表 + 源错误；`?combined=<name>` 按组合成员过滤） |
 | GET/POST | /admin/combineds | 组合订阅列表 / 创建（`source_ids` 成员源数组） |

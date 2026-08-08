@@ -103,7 +103,7 @@ async fn refresh_source_zero_nodes_reports_ok_false() {
 
     // 指向返回空/零节点内容的 URL。
     let url = format!("{}/empty", mock.uri());
-    sqlx::query("INSERT INTO sources (url, name, enabled, created_at) VALUES (?, ?, 1, ?)")
+    sqlx::query("INSERT INTO sources (url, name, created_at) VALUES (?, ?, ?)")
         .bind(&url)
         .bind("empty-src")
         .bind("2026-01-01T00:00:00Z")

@@ -30,7 +30,6 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
             url TEXT NOT NULL,
             name TEXT NOT NULL,
             kind TEXT NOT NULL DEFAULT 'remote',
-            enabled INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )",
     )
@@ -44,6 +43,16 @@ pub async fn init_db(path: &Path) -> Result<SqlitePool> {
             .execute(&pool)
             .await
         && !e.to_string().contains("duplicate column name")
+    {
+        return Err(e.into());
+    }
+
+    // 旧库迁移：移除 enabled 列（SQLite 3.35+ 支持 DROP COLUMN；新库无此列时忽略失败，
+    // 沿用上方 kind 迁移的忽略模式）。
+    if let Err(e) = sqlx::query("ALTER TABLE sources DROP COLUMN enabled")
+        .execute(&pool)
+        .await
+        && !e.to_string().contains("no such column")
     {
         return Err(e.into());
     }
