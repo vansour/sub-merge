@@ -87,4 +87,36 @@ mod tests {
         assert_eq!(rules.len(), 6, "6 条规则保留");
         assert!(!out.contains("substore"));
     }
+
+    #[test]
+    fn default_template_matches_published_meta_shape() {
+        // 锁定默认模板 = 发布配置（clash-vansour.meta.yaml 的模板段，未入库的 untracked
+        // 参照文件）的关键形态，防止未来任一方漂移：
+        // 1) 模板纯净——不含 proxy-providers/proxy-groups（系统段由订阅输出时自动追加）
+        // 2) 6 条 rules 逐条存在且引用「节点选择」组
+        // 3) 模板以 MATCH 规则结尾（发布形态：rules 段位于系统段之后）
+        let tpl = default_template();
+        assert!(
+            !tpl.contains("proxy-providers:"),
+            "模板不得含系统段 proxy-providers（由 serialize_clash_subscription 追加）"
+        );
+        assert!(
+            !tpl.contains("proxy-groups:"),
+            "模板不得含系统段 proxy-groups（由 serialize_clash_subscription 追加）"
+        );
+        for rule in [
+            "RULE-SET,geosite-google,节点选择",
+            "RULE-SET,geosite-youtube,节点选择",
+            "RULE-SET,geosite-nodeseek,节点选择",
+            "RULE-SET,geosite-cn,DIRECT",
+            "RULE-SET,geoip-cn,DIRECT",
+            "MATCH,节点选择",
+        ] {
+            assert!(tpl.contains(rule), "默认模板缺少规则: {rule}");
+        }
+        assert!(
+            tpl.trim_end().ends_with("MATCH,节点选择"),
+            "模板必须以 MATCH 规则结尾（发布形态：rules 段在末尾）"
+        );
+    }
 }
