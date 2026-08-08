@@ -4,7 +4,7 @@
 use crate::api::request;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use submerge_web_core::dto::{ClashConfigDto, CombinedDto, ConfigDto, SourceDto};
+pub use submerge_web_core::dto::{ClashConfigDto, CombinedDto, ConfigDto, SourceDto};
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;

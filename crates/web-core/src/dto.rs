@@ -1,13 +1,12 @@
 // 与 server 的 API 契约 DTO。fixture 取自 crates/server/src/routes/*.rs 实际输出形状。
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct SourceDto {
     pub id: i64,
     pub url: String,
     pub name: String,
     pub kind: String,
-    pub enabled: bool,
     // 后端返回的字段，作为 API 契约保留；UI 暂不展示。
     pub created_at: String,
 }
@@ -52,22 +51,20 @@ mod tests {
 
     #[test]
     fn source_dto_parses_full_fields() {
-        let j = r#"{"id":1,"url":"https://example.com/sub","name":"机场A","kind":"remote","enabled":true,"created_at":"2026-08-07 12:00:00"}"#;
+        let j = r#"{"id":1,"url":"https://example.com/sub","name":"机场A","kind":"remote","created_at":"2026-08-07 12:00:00"}"#;
         let d: SourceDto = serde_json::from_str(j).unwrap();
         assert_eq!(d.id, 1);
         assert_eq!(d.url, "https://example.com/sub");
         assert_eq!(d.name, "机场A");
         assert_eq!(d.kind, "remote");
-        assert!(d.enabled);
         assert_eq!(d.created_at, "2026-08-07 12:00:00");
     }
 
     #[test]
     fn source_dto_single_kind() {
-        let j = r#"{"id":2,"url":"ss://a@b:8388","name":"单条","kind":"single","enabled":false,"created_at":"2026-08-07 12:00:00"}"#;
+        let j = r#"{"id":2,"url":"ss://a@b:8388","name":"单条","kind":"single","created_at":"2026-08-07 12:00:00"}"#;
         let d: SourceDto = serde_json::from_str(j).unwrap();
         assert_eq!(d.kind, "single");
-        assert!(!d.enabled);
     }
 
     #[test]

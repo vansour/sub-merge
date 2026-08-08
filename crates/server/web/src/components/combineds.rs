@@ -1,10 +1,11 @@
-// 组合订阅页：组合列表（成员数 + 两种格式链接复制）+ 新建/编辑弹窗（名字 + 成员勾选）。
+// 组合订阅页：组合列表（成员数 + 两种格式链接复制 + 行内「预览」按钮）+ 新建/编辑弹窗（名字 + 成员勾选）。
 // 数据读 DataStore 缓存（MainShell 预载）；保存/删除成功后 refresh 回写。
+// 行内「预览」打开全屏 PreviewModal（combined=组合名）；组合成员停用标记已随 enabled 字段移除。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::copy_text;
 use crate::components::icon::{Spinner, icon};
-use crate::components::preview_section::PreviewSection;
+use crate::components::preview_modal::PreviewModal;
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
 use crate::data::{DataStore, UnitKey};
 use dioxus::prelude::*;
@@ -30,8 +31,8 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let mut pending_id = use_signal(|| None::<i64>);
     // 复制反馈按 (组合名, 格式) 键控：复制某一格式只翻转该按钮
     let copied = use_signal(|| None::<(String, String)>);
-    // 组合预览区下拉选中值：onchange 更新 → PreviewSection 的 combined prop 变化触发重拉
-    let mut preview_combined = use_signal(|| None::<String>);
+    // 全屏预览弹窗：Some(组合名) 打开
+    let mut previewing = use_signal(|| None::<String>);
     let toasts = use_toast();
 
     // 数据来自 DataStore 缓存（MainShell 预载）；保存/删除成功后 data.refresh 回写。
@@ -39,28 +40,6 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let combined_list = combineds_state.data.unwrap_or_default();
     let sources_state = data.sources.read().clone();
     let source_list = sources_state.data.unwrap_or_default();
-
-    // 组合列表变化（删除/改名）后，预览选中值若指向已不存在的组合 → 重置为空（全部源预览）。
-    // 必须在 effect 体内读 data.combineds 信号：use_effect 只在挂载 + 被读信号变化时重跑，
-    // 若仅捕获外部派生的普通 Vec，删除/刷新后不会触发。effect 也读 preview_combined，
-    // set(None) 后值已为 None、if-let 不成立不再 set，故不会自循环。
-    use_effect(move || {
-        let names: Vec<String> = data
-            .combineds
-            .read()
-            .data
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        let sel = preview_combined.read().clone(); // 先取出 owned 值再写，read guard 不跨 set
-        if let Some(sel) = sel {
-            if !names.contains(&sel) {
-                preview_combined.set(None);
-            }
-        }
-    });
 
     // 打开新建弹窗
     let open_create = move |_| {
@@ -213,9 +192,6 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     span { class: format!("badge {}", if kind == "single" { "info" } else { "off" }),
                         {kind_label(&kind)}
                     }
-                    if !s.enabled {
-                        span { class: "badge off", "停用" }
-                    }
                 }
             }
         })
@@ -251,7 +227,8 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     }
                 })
                 .collect();
-            // 编辑/删除闭包只捕获 Copy 信号，行数据以 owned 参数行内传入（行内 clone 免跨闭包 move）。
+            // 预览/编辑/删除闭包只捕获 Copy 信号，行数据以 owned 参数行内传入（行内 clone 免跨闭包 move）。
+            let preview_name = name.clone();
             let edit_name = name.clone();
             let del_name = name.clone();
             rsx! {
@@ -266,22 +243,11 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     div { class: "actions",
                         // 事件处理器是 FnMut（可多次调用），非 Copy 捕获不能在体内 move 出——
                         // 行内 clone 后传参，与 ask_delete 同模式。
+                        button { class: "btn btn-ghost btn-sm", onclick: move |_| previewing.set(Some(preview_name.clone())), {icon("preview", 13)} "预览" }
                         button { class: "btn btn-ghost btn-sm", onclick: move |_| open_edit(id, edit_name.clone(), source_ids.clone()), {icon("config", 13)} "编辑" }
                         button { class: "btn btn-danger btn-sm", onclick: move |_| ask_delete(id, del_name.clone()), {icon("trash", 13)} "删除" }
                     }
                 }
-            }
-        })
-        .collect();
-
-    // 组合预览下拉选项（预渲染，同 preview.rs 模式）。下拉受控（value 绑定 preview_combined），
-    // 组合改名/删除后不会显示漂移；空选项（value=""）对应「选择组合订阅」= 全部源预览。
-    let combined_options: Vec<Element> = combined_list
-        .iter()
-        .map(|c| {
-            let name = c.name.clone();
-            rsx! {
-                option { value: name.clone(), "{name}" }
             }
         })
         .collect();
@@ -318,22 +284,12 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                 {rows.into_iter()}
             }
         }
-        div { class: "card",
-            h2 { class: "card-title", "预览" }
-            div {
-                select {
-                    class: "preview-filter",
-                    value: preview_combined.read().clone().unwrap_or_default(),
-                    onchange: move |e| {
-                        let v = e.value();
-                        let v = if v.is_empty() { None } else { Some(v) };
-                        preview_combined.set(v);
-                    },
-                    option { value: "", "选择组合订阅" }
-                    {combined_options.into_iter()}
-                }
+        if let Some(name) = previewing.read().clone() {
+            PreviewModal {
+                source_id: None,
+                combined: Some(name),
+                on_close: move |_| previewing.set(None),
             }
-            PreviewSection { token, kind: None, combined: preview_combined.read().clone() }
         }
         // 新建/编辑弹窗
         if form.read().open {

@@ -5,7 +5,7 @@ pub mod config;
 pub mod confirm;
 pub mod icon;
 pub mod login;
-pub mod preview_section;
+pub mod preview_modal;
 pub mod sources;
 pub mod toast;
 

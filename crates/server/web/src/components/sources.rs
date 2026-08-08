@@ -1,16 +1,18 @@
 // crates/server/web/src/components/sources.rs
-// 订阅源 CRUD + 刷新：数据读 DataStore 缓存（MainShell 预载），CRUD 成功后 refresh 回写。
+// 订阅源 CRUD：数据读 DataStore 缓存（MainShell 预载），CRUD 成功后 refresh 回写。
+// 每行「预览/编辑/删除」三按钮：预览 → PreviewModal（source_id 单源预览）；
+// 编辑 → EditSourceModal（本文件内私有全屏弹窗）；删除 → 确认弹窗。
 use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::icon::{Spinner, icon};
-use crate::components::preview_section::PreviewSection;
+use crate::components::preview_modal::PreviewModal;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
-use crate::data::{DataStore, UnitKey};
+use crate::data::{DataStore, SourceDto, UnitKey};
 use dioxus::prelude::*;
 use submerge_web_core::fmt::kind_label;
 
 // 订阅源页按 kind 参数化：本地（"single"）/ 远程（"remote"）两实例共用（导航结构 Task 4 建双入口）。
-// 列表按 kind 过滤；添加表单类型固定（body 传 kind）；页面底部内嵌该 kind 的预览区。
+// 列表按 kind 过滤；添加表单类型固定（body 传 kind）。
 #[component]
 pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     let data = use_context::<DataStore>();
@@ -18,9 +20,11 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     let mut new_url = use_signal(String::new);
     let mut new_name = use_signal(String::new);
     let adding = use_signal(|| false);
-    let mut refreshing = use_signal(std::collections::HashSet::<i64>::new);
     let mut confirm = use_signal(ConfirmState::default);
     let mut pending_id = use_signal(|| None::<i64>);
+    // 全屏弹窗开关：预览（源 id）/ 编辑（源数据）
+    let mut previewing = use_signal(|| None::<i64>);
+    let mut editing = use_signal(|| None::<SourceDto>);
     let toasts = use_toast();
 
     // 数据来自 DataStore 缓存（MainShell 预载）；CRUD 成功后 data.refresh 回写。
@@ -63,82 +67,6 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
         });
     };
 
-    let toggle = move |id: i64, enabled: bool| {
-        let token = token.read().clone();
-        let body = serde_json::json!({ "enabled": !enabled }).to_string();
-        let toasts = toasts.clone();
-        spawn(async move {
-            match request(
-                "PUT",
-                &format!("/admin/sources/{id}"),
-                Some(body),
-                token.as_deref(),
-            )
-            .await
-            {
-                Ok(_) => {
-                    data.refresh(UnitKey::Sources);
-                    push_toast(
-                        toasts,
-                        ToastKind::Info,
-                        if enabled { "已停用" } else { "已启用" },
-                    );
-                }
-                Err(e) => push_toast(toasts, ToastKind::Error, format!("操作失败: {e}")),
-            }
-        });
-    };
-
-    let mut refresh = move |id: i64| {
-        if refreshing.read().contains(&id) {
-            return;
-        }
-        refreshing.write().insert(id);
-        let token = token.read().clone();
-        let mut refreshing = refreshing.clone();
-        let toasts = toasts.clone();
-        spawn(async move {
-            match request(
-                "POST",
-                &format!("/admin/sources/{id}/refresh"),
-                None,
-                token.as_deref(),
-            )
-            .await
-            {
-                Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
-                    Ok(v) => {
-                        let name = v.get("source").and_then(|s| s.as_str()).unwrap_or("该源");
-                        match v.get("ok").and_then(|o| o.as_bool()) {
-                            Some(true) => {
-                                let n = v.get("node_count").and_then(|c| c.as_u64()).unwrap_or(0);
-                                push_toast(
-                                    toasts,
-                                    ToastKind::Success,
-                                    format!("{} 已刷新：{} 个节点", name, n),
-                                );
-                            }
-                            _ => {
-                                let reason = v
-                                    .get("reason")
-                                    .and_then(|r| r.as_str())
-                                    .unwrap_or("未知错误");
-                                push_toast(
-                                    toasts,
-                                    ToastKind::Error,
-                                    format!("{} 刷新失败：{}", name, reason),
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => push_toast(toasts, ToastKind::Error, format!("刷新失败: {}", e)),
-                },
-                Err(e) => push_toast(toasts, ToastKind::Error, format!("刷新失败: {e}")),
-            }
-            refreshing.write().remove(&id);
-        });
-    };
-
     // 名字由行渲染处传入（ask_delete 仅捕获 Copy 信号，跨行内 move 闭包可复制）。
     let mut ask_delete = move |id: i64, name: String| {
         pending_id.set(Some(id));
@@ -177,15 +105,15 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     });
 
     // 行预渲染成 owned Element（沿用项目既有模式，避免 E0716 借用问题）。
+    // 预览/编辑闭包只捕获 Copy 信号，行数据以 owned 参数行内传入（行内 clone 免跨闭包 move）。
     let rows: Vec<Element> = source_list
         .iter()
         .map(|s| {
             let id = s.id;
-            let enabled = s.enabled;
             let name = s.name.clone();
             let kind = s.kind.clone();
             let url = s.url.clone();
-            let busy = refreshing.read().contains(&id);
+            let src = s.clone();
             rsx! {
                 tr {
                     td { "data-label": "名称", class: "cell-name", "{name}" }
@@ -195,24 +123,15 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
                         }
                     }
                     td { "data-label": "URL", class: "cell-url", title: "{url}", "{url}" }
-                    td { "data-label": "状态",
-                        span { class: format!("badge {}", if enabled { "on" } else { "off" }),
-                            if enabled { "启用" } else { "停用" }
-                        }
-                    }
                     td { "data-label": "操作", class: "cell-actions",
                         div { class: "actions",
-                            button { class: "btn btn-ghost btn-sm", onclick: move |_| toggle(id, enabled), disabled: busy,
-                                {icon(if enabled { "x" } else { "check" }, 13)}
-                                if enabled { "停用" } else { "启用" }
+                            button { class: "btn btn-ghost btn-sm", onclick: move |_| previewing.set(Some(id)),
+                                {icon("preview", 13)}
+                                "预览"
                             }
-                            button { class: "btn btn-ghost btn-sm", onclick: move |_| refresh(id), disabled: busy,
-                                if busy {
-                                    Spinner { size: 12 }
-                                } else {
-                                    {icon("refresh", 13)}
-                                }
-                                "刷新"
+                            button { class: "btn btn-ghost btn-sm", onclick: move |_| editing.set(Some(src.clone())),
+                                {icon("edit", 13)}
+                                "编辑"
                             }
                             button { class: "btn btn-danger btn-sm", onclick: move |_| ask_delete(id, name.clone()),
                                 {icon("trash", 13)}
@@ -285,7 +204,7 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
                 div { class: "table-wrap table-wrap-sources",
                     table {
                         thead {
-                            tr { th { "名称" } th { "类型" } th { "URL" } th { "状态" } th { "操作" } }
+                            tr { th { "名称" } th { "类型" } th { "URL" } th { "操作" } }
                         }
                         tbody {
                             {rows.into_iter()}
@@ -294,10 +213,144 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
                 }
             }
         }
-        div { class: "card",
-            h2 { class: "card-title", "预览" }
-            PreviewSection { token, kind: Some(kind), combined: None }
+        if let Some(src) = editing.read().clone() {
+            EditSourceModal {
+                src,
+                token,
+                on_close: move |_| editing.set(None),
+            }
+        }
+        if let Some(sid) = *previewing.read() {
+            PreviewModal {
+                source_id: Some(sid),
+                combined: None,
+                on_close: move |_| previewing.set(None),
+            }
         }
         ConfirmDialog { state: confirm, on_confirm: on_confirm_delete }
+    }
+}
+
+// 编辑订阅源弹窗（全屏）。URL/名称/类型（single/remote 下拉）；保存 → PUT /admin/sources/{id}
+// → data.refresh(UnitKey::Sources) + toast + 关闭；取消 → 关闭。挂载锁背景滚动，卸载恢复。
+#[component]
+fn EditSourceModal(
+    src: SourceDto,
+    token: Signal<Option<String>>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let data = use_context::<DataStore>();
+    let mut url = use_signal(|| src.url.clone());
+    let mut name = use_signal(|| src.name.clone());
+    let mut kind = use_signal(|| src.kind.clone());
+    let saving = use_signal(|| false);
+    let mut err = use_signal(String::new);
+    let toasts = use_toast();
+
+    // 挂载时锁背景滚动；卸载恢复（与 PreviewModal 同模式，不用页面级监听器）。
+    use_effect(move || {
+        if let Some(body) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.body())
+        {
+            let _ = body.style().set_property("overflow", "hidden");
+        }
+    });
+    use_drop(|| {
+        if let Some(body) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.body())
+        {
+            let _ = body.style().remove_property("overflow");
+        }
+    });
+
+    let save = move |_| {
+        let u = url.read().clone();
+        let n = name.read().clone();
+        if u.is_empty() || n.is_empty() {
+            err.set("URL 和名称不能为空".into());
+            return;
+        }
+        let token = token.read().clone();
+        let body =
+            serde_json::json!({ "url": u, "name": n, "kind": kind.read().clone() }).to_string();
+        let id = src.id;
+        let mut saving = saving.clone();
+        let mut err = err.clone();
+        let toasts = toasts.clone();
+        let on_close = on_close.clone();
+        saving.set(true);
+        spawn(async move {
+            match request(
+                "PUT",
+                &format!("/admin/sources/{id}"),
+                Some(body),
+                token.as_deref(),
+            )
+            .await
+            {
+                Ok(_) => {
+                    data.refresh(UnitKey::Sources);
+                    push_toast(toasts, ToastKind::Success, "订阅源已更新");
+                    on_close.call(());
+                }
+                Err(e) => err.set(format!("保存失败: {e}")),
+            }
+            saving.set(false);
+        });
+    };
+
+    let title = format!("编辑「{}」", src.name);
+    let form_err = err.read().clone();
+    let close_head = on_close.clone();
+    let close_foot = on_close.clone();
+
+    rsx! {
+        div { class: "fullscreen-modal",
+            div { class: "fullscreen-modal-head",
+                h2 { class: "fullscreen-modal-title", "{title}" }
+                button { class: "btn btn-ghost btn-sm", onclick: move |_| close_head.call(()), {icon("x", 16)} }
+            }
+            div { class: "fullscreen-modal-body",
+                div { class: "field",
+                    label { "订阅 URL" }
+                    input {
+                        class: "mono",
+                        value: url,
+                        oninput: move |e| url.set(e.value()),
+                    }
+                }
+                div { class: "field", style: "margin-top: 14px",
+                    label { "名称" }
+                    input {
+                        value: name,
+                        oninput: move |e| name.set(e.value()),
+                    }
+                }
+                div { class: "field", style: "margin-top: 14px",
+                    label { "类型" }
+                    select {
+                        value: kind.read().clone(),
+                        onchange: move |e| kind.set(e.value()),
+                        option { value: "single", "单条（single）" }
+                        option { value: "remote", "订阅链接（remote）" }
+                    }
+                }
+                if !form_err.is_empty() {
+                    p { class: "error-text", "{form_err}" }
+                }
+            }
+            div { class: "fullscreen-modal-foot",
+                button { class: "btn btn-ghost", onclick: move |_| close_foot.call(()), "取消" }
+                button { class: "btn btn-primary", onclick: save, disabled: *saving.read(),
+                    if *saving.read() {
+                        Spinner { size: 14 }
+                    } else {
+                        "保存"
+                    }
+                }
+            }
+        }
     }
 }

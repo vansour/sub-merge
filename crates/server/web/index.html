@@ -374,6 +374,28 @@
       .table-wrap-sources td.cell-actions::before { display: none; }
       .table-wrap-sources .cell-url { max-width: none; }
     }
+
+    /* ========== 全屏对话框（预览/编辑） ========== */
+    .fullscreen-modal {
+      position: fixed; inset: 0; z-index: 300;
+      background: var(--bg); display: flex; flex-direction: column;
+    }
+    .fullscreen-modal-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      background: var(--bg-elevated);
+    }
+    .fullscreen-modal-title { font-size: 16px; font-weight: 600; margin: 0; }
+    .fullscreen-modal-body { flex: 1; overflow-y: auto; padding: 20px; }
+    .fullscreen-modal-foot {
+      display: flex; justify-content: flex-end; gap: 8px;
+      padding: 12px 20px; border-top: 1px solid var(--border);
+      background: var(--bg-elevated);
+    }
+    @media (max-width: 900px) {
+      .fullscreen-modal-head { padding-top: calc(14px + env(safe-area-inset-top)); }
+      .fullscreen-modal-foot { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+    }
   </style>
 </head>
 <body>
