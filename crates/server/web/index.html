@@ -276,22 +276,32 @@
     .spinner { animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ========== 响应式：窄屏收成顶栏 ========== */
-    @media (max-width: 768px) {
+    /* ========== 响应式：桌面 ≥900px 侧栏常驻；<900px 汉堡抽屉 ========== */
+    .topbar { display: none; }
+
+    @media (max-width: 900px) {
       .app-shell { flex-direction: column; }
-      .sidebar { width: 100%; height: auto; position: sticky; top: 0; z-index: 10; flex-direction: row; align-items: center; padding: 10px 12px; border-right: none; border-bottom: 1px solid var(--border); }
-      .sidebar-brand { padding: 0; margin-right: auto; }
-      .nav { flex-direction: row; gap: 4px; }
-      .nav-item { width: auto; padding: 8px 10px; }
-      .nav-item span { display: none; }
-      /* 覆盖：分组头箭头在顶栏模式下仍需可见（specificity 0,2,0 > 0,1,1） */
-      .nav-group-head .nav-chevron { display: inline-flex; }
-      .sidebar-footer { border-top: none; padding: 0; flex-direction: row; margin-left: 8px; }
-      .sidebar-version { display: none; }
-      .main { padding: 16px; }
+      .topbar {
+        display: flex; align-items: center; gap: 10px;
+        position: sticky; top: 0; z-index: 30;
+        background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+        padding: 8px 12px;
+      }
+      .topbar-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      .topbar-brand svg { color: var(--accent); }
+      .topbar-menu { padding: 6px; }
+      .sidebar {
+        position: fixed; top: 0; left: 0; bottom: 0; width: 260px;
+        z-index: 50; transform: translateX(-100%);
+        transition: transform .2s ease; border-right: 1px solid var(--border);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
+      .main { padding: 12px; }
       .page-head { flex-direction: column; align-items: flex-start; }
       .form-row { flex-direction: column; align-items: stretch; }
       .form-row .btn { width: 100%; justify-content: center; }
+      .sidebar-version { display: none; }
     }
   </style>
 </head>

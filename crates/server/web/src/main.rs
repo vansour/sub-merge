@@ -13,6 +13,7 @@ use components::login::{Login, clear_token, read_token, write_token};
 use components::sources::Sources;
 use components::toast::ToastProvider;
 use dioxus::prelude::*;
+use wasm_bindgen::prelude::*; // Closure/JsCast（toast.rs 同款用法）
 
 fn main() {
     dioxus::launch(App);
@@ -72,7 +73,7 @@ fn App() -> Element {
     }
 }
 
-// 主壳:侧边栏导航(窄屏自动收成顶栏,见 CSS @media 768px)。
+// 主壳:侧边栏导航(<900px 汉堡抽屉,见 CSS @media 900px;桌面常驻侧栏)。
 // 切换策略:目标 tab 所需数据单元全部就绪才切换(旧页保持 + 菜单项转圈);
 // 已加载单元缓存,回访秒开。数据层见 data.rs 的 DataStore。
 #[component]
@@ -83,18 +84,54 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
 
     // 叶子索引：0=本地订阅 1=远程订阅 2=组合订阅 3=Clash 配置 4=配置
     // 分组名："subs"（订阅管理）"single"（单条订阅）
-    // 初始展开状态按窗口宽度：窄屏（≤768px，侧栏收成顶栏）两分组默认收起，宽屏默认展开。
-    // match_media 返回 Result<Option<MediaQueryList>, JsValue>，js 失败按宽屏兜底。
-    let is_narrow = web_sys::window()
-        .and_then(|w| w.match_media("(max-width: 768px)").ok().flatten())
-        .map(|m| m.matches())
-        .unwrap_or(false);
-    let default_open: std::collections::HashSet<&'static str> = if is_narrow {
-        std::collections::HashSet::new()
-    } else {
-        std::collections::HashSet::from(["subs", "single"])
-    };
-    let mut open_groups = use_signal(|| default_open);
+    // 展开状态默认值由下方 is_mobile 跟随 effect 在挂载时写入（collapse mobile / expand desktop）。
+    let mut open_groups = use_signal(std::collections::HashSet::<&'static str>::new);
+
+    // 移动端抽屉开关
+    let mut menu_open = use_signal(|| false);
+    // 断点判定：跨断点动态跟随（matchMedia change 事件，跨断点单次触发零防抖）。
+    // 挂载时读一次初值；注册监听用守卫信号保证只注册一次（use_effect 无依赖数组）。
+    let is_mobile = use_signal(|| {
+        web_sys::window()
+            .and_then(|w| w.match_media("(max-width: 900px)").ok().flatten())
+            .map(|m| m.matches())
+            .unwrap_or(false)
+    });
+    let mut mq_inited = use_signal(|| false);
+    use_effect(move || {
+        if mq_inited() {
+            return;
+        }
+        mq_inited.set(true);
+        if let Some(mql) =
+            web_sys::window().and_then(|w| w.match_media("(max-width: 900px)").ok().flatten())
+        {
+            // 回调内写信号：捕获 Copy 的 Signal 句柄并 let mut 绑定（Signal::set 需可变）。
+            let mut s = is_mobile;
+            let cb = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                let now = web_sys::window()
+                    .and_then(|w| w.match_media("(max-width: 900px)").ok().flatten())
+                    .map(|m| m.matches())
+                    .unwrap_or(false);
+                s.set(now);
+            }));
+            // 页面生命周期监听：forget 保活（toast.rs schedule_timeout 同模式）。
+            // web-sys 0.3：addEventListener 在 EventTarget 上，签名收 &js_sys::Function
+            // （MediaQueryList 经 wasm-bindgen extends 生成 AsRef/JsCast，unchecked_ref 转 EventTarget）。
+            let et: &web_sys::EventTarget = mql.unchecked_ref();
+            let _ = et.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref());
+            cb.forget();
+        }
+    });
+    // 跨断点跟随：分组默认折叠状态切换（手动开关在断点内仍有效——
+    // 本 effect 只读 is_mobile，不读 open_groups，故不会覆盖手动开关）
+    use_effect(move || {
+        if *is_mobile.read() {
+            open_groups.write().clear();
+        } else {
+            open_groups.write().extend(["subs", "single"]);
+        }
+    });
 
     let mut go = move |i: usize| {
         if *tab.read() == i {
@@ -105,6 +142,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
         }
         // 选中叶子时祖先分组强制展开
         open_groups.write().insert("subs");
+        menu_open.set(false); // 选中导航项关闭移动端抽屉
         if i < 2 {
             open_groups.write().insert("single");
         }
@@ -134,6 +172,40 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
         }
     });
 
+    // Esc 关抽屉 + 打开时锁背景滚动（body overflow；关闭恢复）。
+    // 注册监听用守卫信号保证只注册一次；keydown 在 window 上（转 EventTarget，同 mq 模式）。
+    let mut esc_inited = use_signal(|| false);
+    use_effect(move || {
+        if esc_inited() {
+            return;
+        }
+        esc_inited.set(true);
+        let mut menu = menu_open;
+        let cb = Closure::wrap(Box::new(move |e: web_sys::KeyboardEvent| {
+            if e.key() == "Escape" && *menu.read() {
+                menu.set(false);
+            }
+        }));
+        if let Some(w) = web_sys::window() {
+            let et: &web_sys::EventTarget = w.unchecked_ref();
+            let _ = et.add_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref());
+        }
+        cb.forget();
+    });
+    use_effect(move || {
+        let open = *menu_open.read();
+        if let Some(body) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.body())
+        {
+            if open {
+                let _ = body.style().set_property("overflow", "hidden");
+            } else {
+                let _ = body.style().remove_property("overflow");
+            }
+        }
+    });
+
     // pending 等于当前 tab 时(首次登录的默认页)无旧页可保持,渲染全页 loading。
     let content: Element = if *pending.read() == Some(*tab.read()) {
         rsx! { div { class: "page-loading", Spinner { size: 28 } } }
@@ -149,7 +221,17 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
 
     rsx! {
         div { class: "app-shell",
-            aside { class: "sidebar",
+            div { class: "topbar",
+                button { class: "btn btn-ghost btn-sm topbar-menu", onclick: move |_| menu_open.set(true), {icon("menu", 20)} }
+                div { class: "topbar-brand",
+                    {icon("logo", 20)}
+                    span { "sub-merge" }
+                }
+            }
+            if *menu_open.read() {
+                div { class: "drawer-overlay", onclick: move |_| menu_open.set(false) }
+            }
+            aside { class: if *menu_open.read() { "sidebar open" } else { "sidebar" },
                 div { class: "sidebar-brand",
                     {icon("logo", 22)}
                     span { "sub-merge" }

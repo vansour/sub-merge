@@ -188,19 +188,19 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
             let busy = refreshing.read().contains(&id);
             rsx! {
                 tr {
-                    td { class: "cell-name", "{name}" }
-                    td {
+                    td { "data-label": "名称", class: "cell-name", "{name}" }
+                    td { "data-label": "类型",
                         span { class: format!("badge {}", if kind == "single" { "info" } else { "off" }),
                             {kind_label(&kind)}
                         }
                     }
-                    td { class: "cell-url", title: "{url}", "{url}" }
-                    td {
+                    td { "data-label": "URL", class: "cell-url", title: "{url}", "{url}" }
+                    td { "data-label": "状态",
                         span { class: format!("badge {}", if enabled { "on" } else { "off" }),
                             if enabled { "启用" } else { "停用" }
                         }
                     }
-                    td {
+                    td { "data-label": "操作",
                         div { class: "actions",
                             button { class: "btn btn-ghost btn-sm", onclick: move |_| toggle(id, enabled), disabled: busy,
                                 {icon(if enabled { "x" } else { "check" }, 13)}

@@ -108,6 +108,14 @@ pub fn icon(name: &'static str, size: u32) -> Element {
                 path { d: "m6 6 12 12" }
             }
         },
+        // menu：汉堡（移动端顶栏）
+        "menu" => rsx! {
+            svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
+                path { d: "M4 6h16" }
+                path { d: "M4 12h16" }
+                path { d: "M4 18h16" }
+            }
+        },
         // alert：三角警告
         "alert" => rsx! {
             svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
