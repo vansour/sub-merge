@@ -235,7 +235,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             // 三种格式的链接按钮（预渲染，与行/成员行同模式）。
             // 订阅链接在 rsx 外拼装：rsx 内嵌 format! 的 {} 会被误判为插值（见 config.rs）。
             // move 闭包按值捕获 name，map 内逐次 clone，避免首轮即 move 掉外层 String。
-            let link_buttons: Vec<Element> = ["clash", "v2ray", "singbox"]
+            let link_buttons: Vec<Element> = ["clash", "v2ray"]
                 .into_iter()
                 .map(|fmt| {
                     let link = format!("{}{}", base, subscribe_path(&name, fmt));

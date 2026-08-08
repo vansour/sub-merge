@@ -101,10 +101,6 @@ mod tests {
             subscribe_path("home", "v2ray"),
             "/subscribe/home?format=v2ray"
         );
-        assert_eq!(
-            subscribe_path("home", "singbox"),
-            "/subscribe/home?format=singbox"
-        );
         // 现状不做 URL 编码：含特殊字符时原样拼接。
         assert_eq!(
             subscribe_path("my sub", "clash"),
