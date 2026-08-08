@@ -61,7 +61,7 @@ pub fn serialize_clash(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
     let mut out =
         String::from("mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n\n");
     out.push_str("proxies:\n");
-    // 逐节点容错：单个节点序列化失败跳过（与 singbox 的 filter_map 行为一致），
+    // 逐节点容错：单个节点序列化失败跳过，
     // 防止一个坏节点（如 wireguard 缺 privateKey）拖垮整个订阅
     let mut ok: Vec<(&ProxyNode, String)> = Vec::new();
     for n in nodes {

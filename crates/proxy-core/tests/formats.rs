@@ -1,5 +1,4 @@
 use proxy_core::formats::clash::{serialize_clash, serialize_clash_subscription};
-use proxy_core::formats::singbox::serialize_singbox;
 use proxy_core::formats::v2ray::serialize_v2ray;
 use proxy_core::model::{Crypto, Protocol, ProxyNode};
 use proxy_core::serializer::{OutputFormat, serialize_nodes};
@@ -57,28 +56,12 @@ fn v2ray_subscription_uri_lines() {
 }
 
 #[test]
-fn singbox_json_outbounds() {
-    let nodes = vec![
-        ss_node("A", "1.2.3.4", 8388),
-        trojan_node("B", "5.6.7.8", 443),
-    ];
-    let out = serialize_singbox(&nodes).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    let outbounds = v["outbounds"].as_array().unwrap();
-    assert_eq!(outbounds.len(), 2);
-    assert_eq!(outbounds[0]["type"], "shadowsocks");
-    assert_eq!(outbounds[1]["type"], "trojan");
-}
-
-#[test]
 fn serialize_dispatch() {
     let nodes = vec![ss_node("A", "1.2.3.4", 8388)];
     let clash = serialize_nodes(&nodes, OutputFormat::Clash).unwrap();
     assert!(clash.contains("proxies:"));
     let v2 = serialize_nodes(&nodes, OutputFormat::V2ray).unwrap();
     assert!(v2.contains("ss://") || v2.len() > 20);
-    let sb = serialize_nodes(&nodes, OutputFormat::Singbox).unwrap();
-    assert!(sb.contains("outbounds"));
 }
 
 #[test]
@@ -95,7 +78,6 @@ fn urlencode_equivalent_to_old_semantics() {
 #[test]
 fn empty_nodes_ok() {
     assert!(serialize_clash(&[]).is_ok());
-    assert!(serialize_singbox(&[]).is_ok());
 }
 
 #[test]

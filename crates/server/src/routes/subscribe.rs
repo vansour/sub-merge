@@ -96,7 +96,6 @@ pub async fn subscribe_handler(
     let content_type = match format {
         OutputFormat::Clash => "application/x-yaml",
         OutputFormat::V2ray => "text/plain; charset=utf-8",
-        OutputFormat::Singbox => "application/json",
     };
 
     let resp = Response::builder()
