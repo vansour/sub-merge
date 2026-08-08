@@ -37,17 +37,10 @@ pub fn serialize_clash_subscription(
     .map_err(|e| SerializeError::InvalidTemplate(e.to_string()))?;
     let groups = serde_yaml_ng::to_value(serde_json::json!([
         {
-            "name": "🚀 节点选择",
+            "name": "节点选择",
             "type": "select",
             "use": [provider_key],
             "proxies": ["DIRECT"],
-        },
-        {
-            "name": "♻️ 自动选择",
-            "type": "url-test",
-            "url": "http://www.gstatic.com/generate_204",
-            "interval": 300,
-            "use": [provider_key],
         },
     ]))
     .map_err(|e| SerializeError::InvalidTemplate(e.to_string()))?;

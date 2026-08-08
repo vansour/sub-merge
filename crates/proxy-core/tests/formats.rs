@@ -111,6 +111,8 @@ fn clash_subscription_default_template() {
     assert!(out.contains("proxy-groups:"));
     assert!(out.contains("use:"));
     assert!(out.contains("- home"));
+    assert!(out.contains("节点选择"), "分组名为节点选择（无颜文字）");
+    assert!(!out.contains("自动选择"), "仅单组，无 url-test 组");
     // 输出必须是合法 YAML 且 providers 恰好一个
     let v: serde_yaml_ng::Value = serde_yaml_ng::from_str(&out).unwrap();
     let prov = v["proxy-providers"].as_mapping().unwrap();
