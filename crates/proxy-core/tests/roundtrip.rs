@@ -80,6 +80,36 @@ fn all_protocols_roundtrip() {
 }
 
 #[test]
+fn real_world_vless_reality_node_survives() {
+    // 线上事故回归：substore 源的真实 reality 节点（dmit-us-01）经 parse→serialize
+    // 后 flow/pbk/sid 必须完整保留——此前 security 被降级为 tls、reality 参数全丢，
+    // 导致聚合订阅 3/4 节点无法连接。
+    let uri = "vless://4e871d06-fe48-4bba-ab8d-f25f918bc667@dmit-us-01.vansour.xyz:443?security=reality&type=tcp&packetEncoding=xudp&sni=www.as979.net&fp=chrome&flow=xtls-rprx-vision&sid=6ba85179e30d4fc2&pbk=sAm7vnX_zAavonzGYm4C0BRsl8lwwdPyvEivwLoQNQ8&encryption=none#dmit-us-01";
+    let n = parse_vless(uri).unwrap();
+    assert_eq!(n.flow.as_deref(), Some("xtls-rprx-vision"));
+    assert_eq!(n.sid.as_deref(), Some("6ba85179e30d4fc2"));
+    assert_eq!(
+        n.pbk.as_deref(),
+        Some("sAm7vnX_zAavonzGYm4C0BRsl8lwwdPyvEivwLoQNQ8")
+    );
+    let out = serialize_vless(&n).unwrap();
+    assert!(
+        out.contains("security=reality"),
+        "security=reality 保留: {out}"
+    );
+    assert!(out.contains("flow=xtls-rprx-vision"), "flow 保留: {out}");
+    assert!(out.contains("pbk=sAm7vnX_zAavonzGYm4C0BRsl8lwwdPyvEivwLoQNQ8"));
+    assert!(out.contains("sid=6ba85179e30d4fc2"));
+    assert!(out.contains("sni=www.as979.net"));
+    // 再解析回读一致
+    let n2 = parse_vless(&out).unwrap();
+    assert_eq!(n2.flow, n.flow);
+    assert_eq!(n2.pbk, n.pbk);
+    assert_eq!(n2.sid, n.sid);
+    assert_eq!(n2.tls, n.tls);
+}
+
+#[test]
 fn full_pipeline_parse_merge_serialize() {
     use proxy_core::parser::parse_subscription_text;
     use proxy_core::serializer::{OutputFormat, serialize_nodes};

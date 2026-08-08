@@ -36,6 +36,10 @@ pub fn parse_vless(uri: &str) -> Result<ProxyNode, ParseError> {
     let mut host = None;
     let mut alpn = Vec::new();
     let mut insecure = false;
+    let mut flow = None;
+    let mut pbk = None;
+    let mut sid = None;
+    let mut spx = None;
 
     if let Some(q) = query {
         for kv in q.split('&') {
@@ -52,6 +56,11 @@ pub fn parse_vless(uri: &str) -> Result<ProxyNode, ParseError> {
                 "host" => host = Some(v),
                 "alpn" => alpn = v.split(',').map(|s| s.to_string()).collect(),
                 "allowInsecure" => insecure = v == "1" || v == "true",
+                // reality 参数：flow/pbk/sid/spx（丢失 pbk/sid 后节点无法连接）
+                "flow" => flow = Some(v),
+                "pbk" => pbk = Some(v),
+                "sid" => sid = Some(v),
+                "spx" => spx = Some(v),
                 _ => {}
             }
         }
@@ -97,6 +106,10 @@ pub fn parse_vless(uri: &str) -> Result<ProxyNode, ParseError> {
         server,
         port,
         uuid: Some(uuid),
+        flow,
+        pbk,
+        sid,
+        spx,
         tls,
         transport,
         ..Default::default()
@@ -140,7 +153,13 @@ pub fn serialize_vless(node: &ProxyNode) -> Result<String, SerializeError> {
     }
     if let Some(t) = &node.tls {
         if t.enabled {
-            out.push_str("&security=tls");
+            // reality（pbk 存在）与 tls 的 security 值不同；reality 需额外输出
+            // flow/pbk/sid/spx——缺失 pbk/sid 时客户端无法握手。
+            if node.pbk.is_some() {
+                out.push_str("&security=reality");
+            } else {
+                out.push_str("&security=tls");
+            }
         }
         if let Some(s) = &t.sni {
             out.push_str(&format!("&sni={}", urlencode(s)));
@@ -151,6 +170,18 @@ pub fn serialize_vless(node: &ProxyNode) -> Result<String, SerializeError> {
         if !t.alpn.is_empty() {
             out.push_str(&format!("&alpn={}", urlencode(&t.alpn.join(","))));
         }
+    }
+    if let Some(f) = &node.flow {
+        out.push_str(&format!("&flow={}", urlencode(f)));
+    }
+    if let Some(p) = &node.pbk {
+        out.push_str(&format!("&pbk={}", urlencode(p)));
+    }
+    if let Some(s) = &node.sid {
+        out.push_str(&format!("&sid={}", urlencode(s)));
+    }
+    if let Some(x) = &node.spx {
+        out.push_str(&format!("&spx={}", urlencode(x)));
     }
     if !host.is_empty() {
         out.push_str(&format!("&host={}", urlencode(&host)));

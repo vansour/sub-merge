@@ -152,6 +152,22 @@ fn proxy_to_clash(n: &ProxyNode) -> Result<String, SerializeError> {
                 .as_ref()
                 .ok_or(SerializeError::MissingField("uuid"))?;
             s.push_str(&format!("    uuid: {}\n", clash_yaml_str(u)));
+            // flow + reality（reality-opts）：丢失 pbk/sid 后节点无法握手
+            if let Some(f) = &n.flow {
+                s.push_str(&format!("    flow: {}\n", clash_yaml_str(f)));
+            }
+            if let Some(p) = &n.pbk {
+                s.push_str(&format!(
+                    "    reality-opts:\n      public-key: {}\n",
+                    clash_yaml_str(p)
+                ));
+                if let Some(sid) = &n.sid {
+                    s.push_str(&format!("      short-id: {}\n", clash_yaml_str(sid)));
+                }
+                if let Some(spx) = &n.spx {
+                    s.push_str(&format!("      spider-x: {}\n", clash_yaml_str(spx)));
+                }
+            }
         }
         Protocol::Trojan => {
             let p = n

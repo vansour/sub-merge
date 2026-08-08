@@ -126,6 +126,40 @@ fn subscription_yaml_respects_max_nodes() {
 }
 
 #[test]
+fn clash_yaml_vless_reality_opts() {
+    // 回归：Clash YAML 的 vless reality 节点（reality-opts + flow）必须解析出
+    // pbk/sid/flow——与 vless URI 路径对称，丢失 pbk/sid 后节点无法连接。
+    let yaml = r#"
+proxies:
+  - name: "US-01"
+    type: vless
+    server: 1.2.3.4
+    port: 443
+    uuid: 11111111-2222-3333-4444-555555555555
+    network: tcp
+    tls: true
+    servername: www.as979.net
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: sAm7vnX_zAavonzGYm4C0BRsl8lwwdPyvEivwLoQNQ8
+      short-id: 6ba85179e30d4fc2
+    flow: xtls-rprx-vision
+"#;
+    let nodes = parse_clash_yaml(yaml).unwrap();
+    assert_eq!(nodes.len(), 1);
+    let n = &nodes[0];
+    assert_eq!(n.kind, Protocol::Vless);
+    assert_eq!(
+        n.pbk.as_deref(),
+        Some("sAm7vnX_zAavonzGYm4C0BRsl8lwwdPyvEivwLoQNQ8")
+    );
+    assert_eq!(n.sid.as_deref(), Some("6ba85179e30d4fc2"));
+    assert_eq!(n.flow.as_deref(), Some("xtls-rprx-vision"));
+    let tls = n.tls.as_ref().expect("reality 节点启用 TLS 承载");
+    assert!(tls.enabled);
+}
+
+#[test]
 fn clash_yaml_trojan_sni_without_tls_field() {
     // Clash trojan 条目通常只有顶层 sni，无显式 tls 字段。
     let yaml = r#"

@@ -158,6 +158,14 @@ pub struct ProxyNode {
     pub password: Option<String>,
     pub uuid: Option<String>,
     pub alter_id: Option<u16>,
+    /// 流控（vless reality 常用 xtls-rprx-vision；vmess/vless 均可能携带）
+    pub flow: Option<String>,
+    /// reality 公钥（pbk）：reality 握手必需，缺失则节点无法连接
+    pub pbk: Option<String>,
+    /// reality shortId（sid），可空串
+    pub sid: Option<String>,
+    /// reality spiderX（spx）
+    pub spx: Option<String>,
     pub tls: Option<TlsSettings>,
     pub transport: Option<Transport>,
 }

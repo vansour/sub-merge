@@ -143,6 +143,25 @@ fn clash_proxy_to_node(p: &serde_yaml_ng::Value) -> Option<ProxyNode> {
     {
         node.crypto = Some(crate::model::Crypto::from_str(c));
     }
+    // reality（vless）：reality-opts.public-key / short-id / spider-x + 顶层 flow。
+    // 与 vless URI 解析对称——丢失 pbk/sid 后节点无法握手。
+    if let Some(opts) = p.get("reality-opts") {
+        node.pbk = opts
+            .get("public-key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        node.sid = opts
+            .get("short-id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        node.spx = opts
+            .get("spider-x")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+    }
+    if let Some(f) = p.get("flow").and_then(|v| v.as_str()) {
+        node.flow = Some(f.to_string());
+    }
     // TLS
     // trojan 协议按 Clash 语义始终启用 TLS（协议本身要求 TLS 承载）。
     let type_always_tls = ty == "trojan";
