@@ -11,6 +11,7 @@ use components::config::Config;
 use components::icon::{Spinner, icon};
 use components::login::{Login, clear_token, read_token, write_token};
 use components::sources::Sources;
+use components::theme::ThemeSwitcher;
 use components::toast::ToastProvider;
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -28,6 +29,9 @@ thread_local! {
 }
 
 fn main() {
+    // 主题先行：挂载前应用 localStorage 主题（防首帧闪烁）
+    let t = components::theme::read_theme();
+    components::theme::apply_theme(&t);
     dioxus::launch(App);
 }
 
@@ -240,8 +244,10 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
             if let Some(cb) = cell.borrow_mut().take() {
                 if let Some(w) = web_sys::window() {
                     let et: &web_sys::EventTarget = w.unchecked_ref();
-                    let _ =
-                        et.remove_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref());
+                    let _ = et.remove_event_listener_with_callback(
+                        "keydown",
+                        cb.as_ref().unchecked_ref(),
+                    );
                 }
             }
         });
@@ -299,6 +305,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                     NavLeaf { name: "config", label: "配置", active: *tab.read() == 4, loading: *pending.read() == Some(4), onnav: move |_| go(4) }
                 }
                 div { class: "sidebar-footer",
+                    ThemeSwitcher {}
                     span { class: "sidebar-version", "v0.0.1" }
                     button { class: "btn btn-ghost btn-sm", onclick: move |_| {
                         let t = token.read().clone();

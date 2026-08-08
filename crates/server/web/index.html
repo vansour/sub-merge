@@ -5,28 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>sub-merge 管理</title>
   <style>
-    /* ========== 设计 tokens：浅色 ========== */
+    /* ========== 设计 tokens：浅色（默认） ========== */
     :root {
-      --bg: #f6f7f9;
-      --bg-elevated: #ffffff;
-      --bg-soft: #eef0f3;
-      --card: #ffffff;
-      --text: #17181c;
-      --text-secondary: #5f6672;
-      --text-tertiary: #9ca3af;
-      --border: #e4e7ec;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --accent-contrast: #ffffff;
-      --accent-soft: #e8f0fe;
-      --success: #16a34a;
-      --success-soft: #e9f9ef;
-      --danger: #dc2626;
-      --danger-soft: #fdecec;
-      --danger-btn: #dc2626;
-      --danger-btn-hover: #b91c1c;
-      --warning: #b45309;
-      --warning-soft: #fdf3e3;
+      --bg: #f6f7f9; --bg-elevated: #ffffff; --bg-soft: #eef0f3;
+      --card: #ffffff; --text: #17181c; --text-secondary: #5f6672;
+      --text-tertiary: #9ca3af; --border: #e4e7ec;
+      --accent: #2563eb; --accent-hover: #1d4ed8; --accent-contrast: #ffffff;
+      --accent-soft: #e8f0fe; --success: #16a34a; --success-soft: #e9f9ef;
+      --danger: #dc2626; --danger-soft: #fdecec; --danger-btn: #dc2626;
+      --danger-btn-hover: #b91c1c; --warning: #b45309; --warning-soft: #fdf3e3;
       --shadow-card: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
       --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       --proto-0-bg: #dcfce7; --proto-0-fg: #15803d;
@@ -36,29 +23,34 @@
       --proto-4-bg: #fce7f3; --proto-4-fg: #be185d;
       --proto-5-bg: #ccfbf1; --proto-5-fg: #0f766e;
     }
-    /* ========== 设计 tokens：深色（跟随系统） ========== */
+    /* ========== 设计 tokens：深色（显式 data-theme="dark"） ========== */
+    :root[data-theme="dark"] {
+      --bg: #0f1115; --bg-elevated: #13151b; --bg-soft: #1d2128;
+      --card: #17191f; --text: #e6e8ee; --text-secondary: #9aa1ad;
+      --text-tertiary: #636b78; --border: #262a33;
+      --accent: #38bdf8; --accent-hover: #7dd3fc; --accent-contrast: #0b1220;
+      --accent-soft: #13253f; --success: #4ade80; --success-soft: #12301e;
+      --danger: #f87171; --danger-soft: #331c1e; --danger-btn: #932727;
+      --danger-btn-hover: #a83434; --warning: #fbbf24; --warning-soft: #322712;
+      --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.5);
+      --proto-0-bg: #10291b; --proto-0-fg: #6ee7a0;
+      --proto-1-bg: #12233d; --proto-1-fg: #7dd3fc;
+      --proto-2-bg: #231c3e; --proto-2-fg: #c4b5fd;
+      --proto-3-bg: #291c10; --proto-3-fg: #fdba74;
+      --proto-4-bg: #2c1626; --proto-4-fg: #f9a8d4;
+      --proto-5-bg: #0e2a26; --proto-5-fg: #5eead4;
+    }
+    /* ========== 设计 tokens：深色（system 或未设置时跟随系统） ========== */
     @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f1115;
-        --bg-elevated: #13151b;
-        --bg-soft: #1d2128;
-        --card: #17191f;
-        --text: #e6e8ee;
-        --text-secondary: #9aa1ad;
-        --text-tertiary: #636b78;
-        --border: #262a33;
-        --accent: #38bdf8;
-        --accent-hover: #7dd3fc;
-        --accent-contrast: #0b1220;
-        --accent-soft: #13253f;
-        --success: #4ade80;
-        --success-soft: #12301e;
-        --danger: #f87171;
-        --danger-soft: #331c1e;
-        --danger-btn: #932727;
-        --danger-btn-hover: #a83434;
-        --warning: #fbbf24;
-        --warning-soft: #322712;
+      :root[data-theme="system"], :root:not([data-theme]) {
+        /* 与 data-theme="dark" 块完全相同的变量值（复制粘贴） */
+        --bg: #0f1115; --bg-elevated: #13151b; --bg-soft: #1d2128;
+        --card: #17191f; --text: #e6e8ee; --text-secondary: #9aa1ad;
+        --text-tertiary: #636b78; --border: #262a33;
+        --accent: #38bdf8; --accent-hover: #7dd3fc; --accent-contrast: #0b1220;
+        --accent-soft: #13253f; --success: #4ade80; --success-soft: #12301e;
+        --danger: #f87171; --danger-soft: #331c1e; --danger-btn: #932727;
+        --danger-btn-hover: #a83434; --warning: #fbbf24; --warning-soft: #322712;
         --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.5);
         --proto-0-bg: #10291b; --proto-0-fg: #6ee7a0;
         --proto-1-bg: #12233d; --proto-1-fg: #7dd3fc;
@@ -68,6 +60,23 @@
         --proto-5-bg: #0e2a26; --proto-5-fg: #5eead4;
       }
     }
+    /* ========== 主题切换过渡（一次性 class，theme.rs 触发） ========== */
+    html.theme-transition, html.theme-transition body {
+      transition: background-color .2s ease, color .2s ease;
+    }
+    /* ========== 主题切换器（侧边栏底部三态分段按钮） ========== */
+    .theme-switcher {
+      display: flex; gap: 4px; padding: 4px; margin: 0 10px 6px;
+      background: var(--bg-soft); border-radius: 8px;
+    }
+    .theme-switcher .seg {
+      flex: 1; display: inline-flex; align-items: center; justify-content: center;
+      border: none; background: none; color: var(--text-tertiary);
+      padding: 5px 0; border-radius: 6px; cursor: pointer;
+      transition: background-color .15s ease, color .15s ease;
+    }
+    .theme-switcher .seg:hover { color: var(--text); }
+    .theme-switcher .seg.active { background: var(--card); color: var(--accent); box-shadow: var(--shadow-card); }
 
     /* ========== 基础 ========== */
     * { box-sizing: border-box; }

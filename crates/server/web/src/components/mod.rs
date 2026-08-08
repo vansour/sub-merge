@@ -7,6 +7,7 @@ pub mod icon;
 pub mod login;
 pub mod preview_modal;
 pub mod sources;
+pub mod theme;
 pub mod toast;
 
 // 剪贴板写入（config 页与组合订阅页共用）。web-sys 0.3.103 实测签名：

@@ -455,6 +455,26 @@ def scenario_responsive(ws):
     time.sleep(0.8)
     assert_true(ev(ws, "getComputedStyle(document.querySelector('.topbar')).display !== 'none'") is True, "resize 后顶栏出现")
 
+def scenario_theme_switch(ws):
+    """主题切换：三态分段按钮存在 → 切深色 → html[data-theme]='dark' 生效 + localStorage 写入
+    → 刷新后保持深色 → 切回 system 恢复跟随。"""
+    login(ws)
+    assert_true(wait_until(ws, "!!document.querySelector('.theme-switcher')"), "主题切换器出现")
+    # 默认 system（新库/未设置过）
+    assert_true(ev(ws, "document.documentElement.dataset.theme === 'system'"), "默认 system 主题")
+    # 切深色
+    ev(ws, "Array.from(document.querySelectorAll('.theme-switcher .seg')).find(b=>b.title==='深色').click()")
+    assert_true(wait_until(ws, "document.documentElement.dataset.theme === 'dark'"), "data-theme 切为 dark")
+    assert_true(ev(ws, "localStorage.getItem('submerge_theme') === 'dark'"), "localStorage 写入 dark")
+    # 刷新后保持
+    cmd(ws, "Page.reload")
+    time.sleep(2.5)
+    assert_true(wait_until(ws, "document.documentElement.dataset.theme === 'dark'", timeout=15), "刷新后保持 dark")
+    # 切回 system（恢复跟随，不污染共享环境）
+    ev(ws, "Array.from(document.querySelectorAll('.theme-switcher .seg')).find(b=>b.title==='跟随系统').click()")
+    assert_true(wait_until(ws, "document.documentElement.dataset.theme === 'system'"), "切回 system")
+    assert_true(ev(ws, "localStorage.getItem('submerge_theme') === 'system'"), "localStorage 写入 system")
+
 def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
@@ -463,7 +483,8 @@ def main():
                  "preview_failure": scenario_preview_failure,
                  "config_password": scenario_config_password,
                  "clash_config": scenario_clash_config,
-                 "responsive": scenario_responsive}
+                 "responsive": scenario_responsive,
+                 "theme_switch": scenario_theme_switch}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
