@@ -71,7 +71,12 @@ def ensure_session():
     SESSION_TOKEN = api_login(ADMIN_USER, ADMIN_PASS)
 
 def login(ws):
-    """页面登录:API 层拿真实会话 token → 写入 localStorage(submerge_admin_session) → 刷新。"""
+    """页面登录:API 层拿真实会话 token → 写入 localStorage(submerge_admin_session) → 刷新。
+
+    先固定桌面视口(CDP 仿真,登录刷新前生效):既有场景的导航断言(叶子常驻/spinner/
+    分组折叠)均以桌面展开态为前提——移动端(<900px)分组默认折叠,叶子不在 DOM
+    (响应式设计使然,非缺陷)。responsive 场景在 login 后自行切换各断点,不受影响。"""
+    cmd(ws, "Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
     ensure_session()
     cmd(ws, "Page.enable"); cmd(ws, "Runtime.enable")
     time.sleep(2)
@@ -192,7 +197,9 @@ try {
 """
 
 def scenario_nav_preload(ws):
-    """首次切换:旧页保持 + 菜单项转圈 → 就绪后切换;已加载页回访秒开;分组折叠/展开。"""
+    """首次切换:旧页保持 + 菜单项转圈 → 就绪后切换;已加载页回访秒开;分组折叠/展开。
+
+    桌面视口由 login() 统一固定(叶子断言依赖桌面展开态,见 login 注释)。"""
     seed_sources(ws, 1)
     cmd(ws, "Page.addScriptToEvaluateOnNewDocument", {"source": OBSERVER_JS})
     login(ws)
@@ -498,6 +505,46 @@ def scenario_combineds(ws):
     ev(ws, "Array.from(document.querySelectorAll('.modal-actions button')).find(b=>b.textContent.includes('保存')).click()")
     assert_true(wait_until(ws, "document.body.innerText.includes('c-test')"), "保存后列表出现 c-test")
 
+def scenario_responsive(ws):
+    """响应式适配：视口矩阵无水平溢出 + 移动端抽屉可达性（导航全可达）+ 跨断点 resize 跟随。
+
+    前置:server 端口可经命令行 URL 参数覆盖(默认 18080);CDP 视口仿真会触发页面
+    matchMedia change + resize 事件,App 的 is_mobile 信号随之跟随(无需刷新页面)。"""
+    seed_sources(ws, 1)
+    login(ws)
+    # 1) 视口矩阵:无文档级水平溢出(320 宽度下订阅源表走卡片化布局,亦在覆盖范围)
+    for name, w, h in [("desktop", 1280, 800), ("tablet", 768, 1024), ("phone", 390, 844), ("small", 320, 568)]:
+        cmd(ws, "Emulation.setDeviceMetricsOverride", {"width": w, "height": h, "deviceScaleFactor": 1, "mobile": True})
+        time.sleep(0.5)
+        assert_true(ev(ws, "document.documentElement.scrollWidth <= document.documentElement.clientWidth") is True,
+                    "无水平溢出(%s)" % name)
+    # 2) 手机视口:抽屉可达性——顶栏汉堡可见 → 点开抽屉 → 点「组合订阅」→ 页面导航且抽屉关闭
+    cmd(ws, "Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+    time.sleep(1)
+    # 汉堡按钮在 DOM 恒存在(桌面 CSS 隐藏顶栏),故断言加 display 检查保证「可见」语义
+    assert_true(ev(ws, "!!document.querySelector('.topbar-menu') && getComputedStyle(document.querySelector('.topbar')).display !== 'none'") is True,
+                "手机视口顶栏汉堡可见")
+    ev(ws, "document.querySelector('.topbar-menu').click()")
+    time.sleep(0.4)
+    assert_true(ev(ws, "document.querySelector('.sidebar').classList.contains('open')"), "抽屉打开")
+    # 组合订阅是 .sidebar 内 NavLeaf 按钮;移动端分组默认折叠,须先展开「订阅管理」分组头
+    # (分组头点击只改 open_groups,不关抽屉);选中导航项时 go() 同步关闭抽屉。
+    ev(ws, "Array.from(document.querySelectorAll('.sidebar button')).find(b=>b.textContent.includes('订阅管理')).click()")
+    time.sleep(0.3)
+    assert_true(ev(ws, "Array.from(document.querySelectorAll('.sidebar button')).some(b=>b.textContent.includes('组合订阅'))"), "展开分组后组合订阅可见")
+    ev(ws, "Array.from(document.querySelectorAll('.sidebar button')).find(b=>b.textContent.includes('组合订阅')).click()")
+    time.sleep(0.4)
+    assert_true(ev(ws, "!document.querySelector('.sidebar').classList.contains('open')"), "选中项后抽屉关闭")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('.sidebar button')).find(b=>b.textContent.includes('组合订阅')).classList.contains('active')", timeout=10),
+                "组合订阅页导航激活(抽屉内导航可达)")
+    # 3) 跨断点 resize:桌面侧栏常驻(sticky) → 手机顶栏出现(显示而非仅 DOM 存在)
+    cmd(ws, "Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
+    time.sleep(0.8)
+    assert_true(ev(ws, "getComputedStyle(document.querySelector('.sidebar')).position === 'sticky'"), "桌面侧栏常驻(sticky)")
+    cmd(ws, "Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+    time.sleep(0.8)
+    assert_true(ev(ws, "getComputedStyle(document.querySelector('.topbar')).display !== 'none'") is True, "resize 后顶栏出现")
+
 def main():
     scenario = sys.argv[1] if len(sys.argv) > 1 else "nav_preload"
     ws = connect()
@@ -506,7 +553,8 @@ def main():
                  "refresh_failure": scenario_refresh_failure,
                  "config_password": scenario_config_password,
                  "clash_config": scenario_clash_config,
-                 "first_load_failure": scenario_first_load_failure}
+                 "first_load_failure": scenario_first_load_failure,
+                 "responsive": scenario_responsive}
     scenarios[scenario](ws)
     print("== %s: ALL PASS ==" % scenario)
 
