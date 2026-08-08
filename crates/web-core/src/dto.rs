@@ -38,6 +38,7 @@ pub struct PreviewResp {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigDto {
     pub username: String,
+    pub v2ray_base64: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -100,9 +101,10 @@ mod tests {
 
     #[test]
     fn config_dto_parses() {
-        let j = r#"{"username":"admin"}"#;
+        let j = r#"{"username":"admin","v2ray_base64":true}"#;
         let d: ConfigDto = serde_json::from_str(j).unwrap();
         assert_eq!(d.username, "admin");
+        assert!(d.v2ray_base64);
     }
 
     #[test]

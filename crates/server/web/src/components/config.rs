@@ -5,7 +5,8 @@
 use crate::api::request;
 use crate::components::icon::Spinner;
 use crate::components::login::clear_token;
-use crate::data::DataStore;
+use crate::components::toast::{ToastKind, push_toast, use_toast};
+use crate::data::{DataStore, UnitKey};
 use dioxus::prelude::*;
 
 #[component]
@@ -59,6 +60,37 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         .map(|c| c.username.clone())
         .unwrap_or_default();
 
+    // 订阅输出设置：v2ray 是否使用 base64（draft 从缓存初始化，保存走 PUT /admin/config）。
+    let mut v2ray_b64 = use_signal(|| {
+        config_state
+            .data
+            .as_ref()
+            .map(|c| c.v2ray_base64)
+            .unwrap_or(true)
+    });
+    let setting_saving = use_signal(|| false);
+    let toasts = use_toast();
+    let save_setting = move |_| {
+        let v = *v2ray_b64.read();
+        let current = token.read().clone();
+        let body = serde_json::json!({ "v2ray_base64": v }).to_string();
+        let mut error = error.clone();
+        let mut saving = setting_saving.clone();
+        let toasts = toasts.clone();
+        saving.set(true);
+        spawn(async move {
+            match request("PUT", "/admin/config", Some(body), current.as_deref()).await {
+                Ok(_) => {
+                    data.refresh(UnitKey::Config);
+                    error.set(String::new());
+                    push_toast(toasts, ToastKind::Success, "订阅输出设置已保存");
+                }
+                Err(e) => error.set(format!("保存失败: {e}")),
+            }
+            saving.set(false);
+        });
+    };
+
     // 改密错误优先展示；无本地错误时展示缓存加载错误。
     let page_error = if error.read().is_empty() {
         config_state.error.clone()
@@ -107,6 +139,27 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
                         Spinner { size: 14 }
                     } else {
                         "修改密码"
+                    }
+                }
+            }
+            div { class: "card",
+                h2 { class: "card-title", "订阅输出" }
+                p { class: "subtle", "v2ray 订阅输出是否使用 base64 编码；关闭后浏览器直接显示节点 URI 文本（客户端两种形态均可解析）。" }
+                div { class: "field",
+                    label { class: "switch-row",
+                        input {
+                            r#type: "checkbox",
+                            checked: *v2ray_b64.read(),
+                            oninput: move |e| v2ray_b64.set(e.value() == "true"),
+                        }
+                        span { "v2ray 输出使用 base64" }
+                    }
+                }
+                button { class: "btn btn-primary", onclick: save_setting, disabled: *setting_saving.read(),
+                    if *setting_saving.read() {
+                        Spinner { size: 14 }
+                    } else {
+                        "保存设置"
                     }
                 }
             }

@@ -237,7 +237,8 @@ def scenario_sources_crud(ws):
     cleanup_source("crud-test")
 
 def scenario_config_password(ws):
-    """配置页:账号卡片渲染用户名(缓存读取);改密后全部会话失效被踢回登录页;新密码重新登录。
+    """配置页:账号卡片渲染用户名(缓存读取);「订阅输出」开关切换保存与刷新回读;
+    改密后全部会话失效被踢回登录页;新密码重新登录。
 
     收尾(finally)用 API 把密码改回 ui-pass-12345 并刷新 SESSION_TOKEN,
     使后续场景不受影响(改密后任一步断言失败也执行恢复)。"""
@@ -245,11 +246,39 @@ def scenario_config_password(ws):
     NEW_PASS = "ui-pass-67890"
     login(ws)
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
+    # 前置自愈:把 v2ray_base64 恢复为默认 true(上次运行中途失败残留也能自愈)。
+    # 配置单元此时未加载(预载仅 tab=0 的 sources),恢复后再进配置页读到新值。
+    ensure_session()
+    import urllib.request as u
+    u.urlopen(u.Request(URL + "/admin/config", method="PUT",
+                        data=json.dumps({"v2ray_base64": True}).encode(),
+                        headers={"Authorization": "Bearer " + SESSION_TOKEN,
+                                 "Content-Type": "application/json"}), timeout=5)
     click_nav_exact(ws, "配置")
     assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='配置').classList.contains('active')"), "配置就绪")
     # 账号卡片:用户名来自 DataStore 缓存(GET /admin/config),渲染为 .token-row .token-value
     assert_true(wait_until(ws, "document.querySelector('.card .token-value')?.textContent === '%s'" % ADMIN_USER), "账号卡片渲染用户名 ui")
-    # 三个密码输入按渲染顺序:当前密码/新密码/确认新密码
+    # —— 订阅输出卡片:开关默认勾选 → 切换关 → 保存 → toast ——
+    # (改密会登出,开关断言全部放在改密之前)
+    assert_true(wait_until(ws, "!!document.querySelector('.switch-row')"), "订阅输出卡片出现")
+    assert_true(wait_until(ws, "document.querySelector('.switch-row input').checked === true"), "开关默认勾选(base64 开)")
+    ev(ws, "document.querySelector('.switch-row input').click()")
+    assert_true(wait_until(ws, "document.querySelector('.switch-row input').checked === false"), "点击后开关取消勾选")
+    ev(ws, "Array.from(document.querySelectorAll('.card button')).find(b=>b.textContent.includes('保存设置')).click()")
+    assert_true(wait_until(ws, "document.body.innerText.includes('订阅输出设置已保存')", timeout=10), "保存成功 toast")
+    # 恢复默认:切回勾选并保存,不污染共享 DB(默认行为 = base64 开)
+    ev(ws, "document.querySelector('.switch-row input').click()")
+    assert_true(wait_until(ws, "document.querySelector('.switch-row input').checked === true"), "恢复勾选")
+    ev(ws, "Array.from(document.querySelectorAll('.card button')).find(b=>b.textContent.includes('保存设置')).click()")
+    assert_true(wait_until(ws, "document.body.innerText.includes('订阅输出设置已保存')", timeout=10), "恢复保存 toast")
+    # 刷新回读:开关状态从服务端保持(默认开)
+    cmd(ws, "Page.reload")
+    time.sleep(2.5)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='配置')!==undefined", timeout=15), "刷新后导航就绪")
+    click_nav_exact(ws, "配置")
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='配置').classList.contains('active')"), "刷新后配置就绪")
+    assert_true(wait_until(ws, "!!document.querySelector('.switch-row input') && document.querySelector('.switch-row input').checked === true", timeout=10), "刷新后开关状态保持(base64 开)")
+    # 三个密码输入按渲染顺序(账号卡片在前):当前密码/新密码/确认新密码
     ev(ws, "(()=>{const ins=document.querySelectorAll('.card input');ins[0].value='%s';ins[0].dispatchEvent(new Event('input',{bubbles:true}));ins[1].value='%s';ins[1].dispatchEvent(new Event('input',{bubbles:true}));ins[2].value='%s';ins[2].dispatchEvent(new Event('input',{bubbles:true}));})()" % (ADMIN_PASS, NEW_PASS, NEW_PASS))
     ev(ws, "Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('修改密码')).click()")
     try:
