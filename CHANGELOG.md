@@ -2,7 +2,7 @@
 
 本文件由 git-cliff 在每次发版时自动更新（.github/workflows/release.yml）。请勿手工编辑。
 
-## v0.0.1 - 2026-08-07
+## v0.0.1 - 2026-08-08
 
 
 
@@ -132,6 +132,8 @@
 - Clash 订阅组模式 + 默认配置管理设计 ([feee818](https://github.com/vansour/sub-merge/commit/feee81803f3166f35d5707b38378607c77954cea))
 - Clash 订阅组模式实施计划 ([50b070f](https://github.com/vansour/sub-merge/commit/50b070ff996e66f962e192b5a0fb07dd5bfd8301))
 - 更新 CHANGELOG.md（v0.0.1） ([2603d87](https://github.com/vansour/sub-merge/commit/2603d8734161c0877b16a17042ed1f370e8d739c))
+- 更新 CHANGELOG.md（v0.0.1） ([28d4a29](https://github.com/vansour/sub-merge/commit/28d4a29aa161b1e83f047925cc66f42dd966adbf))
+- 添加 MIT LICENSE + README License 节（公开仓库发布就绪） ([0b32373](https://github.com/vansour/sub-merge/commit/0b32373d1ce0ab2ae69e6943ebc3bf9fb6cc26e7))
 
 ### Features
 
