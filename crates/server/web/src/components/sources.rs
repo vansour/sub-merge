@@ -70,6 +70,7 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
             match request("POST", "/admin/sources", Some(body), token.as_deref()).await {
                 Ok(_) => {
                     data.refresh(UnitKey::Sources);
+                    data.refresh(UnitKey::Stats);
                     new_url.set(String::new());
                     new_name.set(String::new());
                     error.set(String::new());
@@ -110,6 +111,7 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
                 {
                     Ok(_) => {
                         data.refresh(UnitKey::Sources);
+                        data.refresh(UnitKey::Stats);
                         push_toast(toasts, ToastKind::Success, "已删除");
                     }
                     Err(e) => push_toast(toasts, ToastKind::Error, format!("删除失败: {e}")),
@@ -328,6 +330,7 @@ fn EditSourceModal(
             {
                 Ok(_) => {
                     data.refresh(UnitKey::Sources);
+                    data.refresh(UnitKey::Stats);
                     push_toast(toasts, ToastKind::Success, "订阅源已更新");
                     on_close.call(());
                 }

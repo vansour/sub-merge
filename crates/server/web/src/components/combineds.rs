@@ -119,6 +119,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             match result {
                 Ok(_) => {
                     data.refresh(UnitKey::Combineds);
+                    data.refresh(UnitKey::Stats);
                     form.set(FormState::default());
                     error.set(String::new());
                     push_toast(toasts, ToastKind::Success, "组合订阅已保存");
@@ -156,6 +157,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                 {
                     Ok(_) => {
                         data.refresh(UnitKey::Combineds);
+                        data.refresh(UnitKey::Stats);
                         push_toast(toasts, ToastKind::Success, "已删除");
                     }
                     Err(e) => push_toast(toasts, ToastKind::Error, format!("删除失败: {e}")),

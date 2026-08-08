@@ -188,6 +188,26 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
         }
     });
 
+    // tab 切换时重播 page-enter 动画：page-wrap 是稳定节点不会重挂载（切换只换 {content}
+    // 子节点），动画只在挂载时播一次。用 remove → 强制 reflow（get_bounding_client_rect）
+    // → 重新 add 的技巧在切换瞬间重触发；250ms（动画 200ms）后移除 class，保证下次
+    // 切换可再次重播。只读 tab 信号（订阅切换）、无信号写入，不会自循环。
+    use_effect(move || {
+        let _ = *tab.read(); // 订阅 tab：切换时重跑
+        if let Some(doc) = web_sys::window().and_then(|w| w.document())
+            && let Ok(Some(el)) = doc.query_selector(".page-wrap")
+        {
+            let _ = el.class_list().remove_1("page-enter");
+            // 强制 reflow 后重新加 class，确保动画重播
+            let _ = el.get_bounding_client_rect();
+            let _ = el.class_list().add_1("page-enter");
+            let el2 = el.clone();
+            crate::components::toast::schedule_timeout(250, move || {
+                let _ = el2.class_list().remove_1("page-enter");
+            });
+        }
+    });
+
     // Esc 关抽屉 + 打开时锁背景滚动（body overflow；关闭恢复）。
     // 注册监听用守卫信号保证只注册一次；keydown 在 window 上（转 EventTarget，同 mq 模式）。
     let mut esc_inited = use_signal(|| false);
