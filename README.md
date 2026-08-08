@@ -114,3 +114,7 @@ Dioxus Web (WASM) 管理界面 ──▶ axum Server（/subscribe/{name}、/admi
 - proxy-core：各协议解析/序列化单元测试、roundtrip 往返测试、Clash YAML/订阅解析测试、proptest 随机输入防 panic
 - server：API 集成测试（wiremock 模拟订阅源、真实 TCP 并发计数验证并发上限）、静态托管与 SPA 回退测试
 - 端到端：`make smoke` 冒烟脚本
+
+## License
+
+[MIT](LICENSE)
