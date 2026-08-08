@@ -23,6 +23,4 @@ pub enum SerializeError {
     UnsupportedProtocol(&'static str),
     #[error("missing required field: {0}")]
     MissingField(&'static str),
-    #[error("invalid clash template: {0}")]
-    InvalidTemplate(String),
 }

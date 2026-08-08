@@ -159,12 +159,10 @@ combined="$(curl -sf -X POST "http://127.0.0.1:$SERVER_PORT/admin/combineds" \
   -d "{\"name\":\"merged\",\"source_ids\":[$SRC_ID]}")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["name"]=="merged"; assert d["source_ids"]==[int(sys.argv[1])], d; print("combined id=%d"%d["id"])' <<<"$combined" "$SRC_ID"
 
-# clash 订阅组模式：模板 + proxy-providers 引用本服务 v2ray 聚合，节点不内联
-clash_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=clash")"
-grep -q "proxy-providers:" <<<"$clash_out" || fail "/subscribe/merged 未输出 proxy-providers（订阅组模式）"
-grep -q "url: http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=v2ray" <<<"$clash_out" \
-  || fail "/subscribe/merged 未引用 v2ray 聚合链接"
-printf 'GET /subscribe/merged?format=clash → 200 OK, 订阅组模板\n'
+# clash 格式已移除（2026-08-08 破坏性变更）：format=clash → 400
+clash_code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=clash")"
+[[ "$clash_code" == "400" ]] || fail "format=clash 期望 400（已移除），实际 $clash_code"
+printf 'GET /subscribe/merged?format=clash → 400（clash 已移除）\n'
 
 v2ray_out="$(curl -sf "http://127.0.0.1:$SERVER_PORT/subscribe/merged?format=v2ray")"
 v2ray_decoded="$(python3 -c 'import base64,sys; print(base64.b64decode(sys.argv[1]).decode())' "$v2ray_out")" \

@@ -94,17 +94,13 @@ mod tests {
     #[test]
     fn subscribe_path_builds() {
         assert_eq!(
-            subscribe_path("home", "clash"),
-            "/subscribe/home?format=clash"
-        );
-        assert_eq!(
             subscribe_path("home", "v2ray"),
             "/subscribe/home?format=v2ray"
         );
         // 现状不做 URL 编码：含特殊字符时原样拼接。
         assert_eq!(
-            subscribe_path("my sub", "clash"),
-            "/subscribe/my sub?format=clash"
+            subscribe_path("my sub", "v2ray"),
+            "/subscribe/my sub?format=v2ray"
         );
     }
 

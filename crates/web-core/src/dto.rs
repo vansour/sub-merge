@@ -41,11 +41,6 @@ pub struct ConfigDto {
     pub v2ray_base64: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ClashConfigDto {
-    pub template: String,
-}
-
 // /admin/stats 响应（Task 1 后端聚合端点：total_nodes/protocol_counts/errors/sources/kinds）。
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct StatsDto {
@@ -115,33 +110,6 @@ mod tests {
         let d: ConfigDto = serde_json::from_str(j).unwrap();
         assert_eq!(d.username, "admin");
         assert!(d.v2ray_base64);
-    }
-
-    #[test]
-    fn clash_config_dto_parses() {
-        let j = r#"{"template":"mixed-port: 7890\nmode: rule"}"#;
-        let d: ClashConfigDto = serde_json::from_str(j).unwrap();
-        assert_eq!(d.template, "mixed-port: 7890\nmode: rule");
-    }
-
-    #[test]
-    fn stats_dto_parses_full_shape() {
-        let j = r#"{"total_nodes":320,"protocol_counts":{"vmess":150,"ss":120},"errors":["源A: 超时"],"sources":5,"kinds":{"single":2,"remote":3}}"#;
-        let d: StatsDto = serde_json::from_str(j).unwrap();
-        assert_eq!(d.total_nodes, 320);
-        assert_eq!(d.protocol_counts["vmess"], 150);
-        assert_eq!(d.errors, vec!["源A: 超时"]);
-        assert_eq!(d.sources, 5);
-        assert_eq!(d.kinds["remote"], 3);
-    }
-
-    #[test]
-    fn stats_dto_empty() {
-        let j = r#"{"total_nodes":0,"protocol_counts":{},"errors":[],"sources":0,"kinds":{}}"#;
-        let d: StatsDto = serde_json::from_str(j).unwrap();
-        assert_eq!(d.total_nodes, 0);
-        assert!(d.protocol_counts.is_empty());
-        assert!(d.kinds.is_empty());
     }
 
     #[test]

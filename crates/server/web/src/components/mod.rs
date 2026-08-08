@@ -1,5 +1,4 @@
 // crates/server/web/src/components/mod.rs
-pub mod clash_config;
 pub mod combineds;
 pub mod config;
 pub mod confirm;

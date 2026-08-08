@@ -186,7 +186,7 @@ async fn unknown_route_returns_404() {
 async fn subscribe_without_token_succeeds() {
     let tmp = fresh_tmp("sub-notoken");
     let pool = test_pool(&tmp).await;
-    // 空成员组合：clash 分支不拉源，输出默认模板订阅组配置
+    // 空成员组合：v2ray 分支不拉源（零成员），输出空 body 200
     sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('merged', 'now')")
         .execute(&pool)
         .await
@@ -194,12 +194,11 @@ async fn subscribe_without_token_succeeds() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
-    // 无任何 token 参数即可访问；clash 分支需要 Host header 拼 provider url
+    // 无任何 token 参数即可访问（订阅接口无鉴权）；缺省 format 为 v2ray
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/subscribe/merged?format=clash")
-                .header("host", "example.com")
+                .uri("/subscribe/merged")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -283,8 +282,7 @@ async fn subscribe_returns_subscription() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/subscribe/merged?format=clash")
-                .header("host", "example.com")
+                .uri("/subscribe/merged?format=v2ray")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -295,14 +293,10 @@ async fn subscribe_returns_subscription() {
         .await
         .unwrap();
     let body = String::from_utf8(bytes.to_vec()).unwrap();
-    // clash 输出已改为订阅组模式：模板 + providers 引用（不再输出解析节点）
-    assert!(body.contains("proxy-providers:"), "订阅组模式输出");
-    assert!(body.contains("merged:"), "provider key = 组合名");
-    assert!(
-        body.contains("url: http://example.com/subscribe/merged?format=v2ray"),
-        "provider url 拼请求 Host"
-    );
-    assert!(body.contains("proxies:"), "模板代理组段保留");
+    // v2ray 输出：base64（缺省设置），解码后含节点
+    let decoded = b64_decode(&body);
+    assert!(decoded.contains("ss://"), "解码后含节点: {decoded}");
+    assert!(decoded.contains("#A"), "节点名保留: {decoded}");
 }
 
 #[tokio::test]
@@ -317,6 +311,7 @@ async fn subscribe_wrong_format_returns_bad_request() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
+    // 未知格式 → 400
     let resp = app
         .clone()
         .oneshot(
@@ -328,6 +323,24 @@ async fn subscribe_wrong_format_returns_bad_request() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    // clash 格式已移除 → 400（含别名）
+    for f in ["clash", "yaml"] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/subscribe/merged?format={f}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "clash 格式已移除应 400, format={f}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1828,8 +1841,7 @@ async fn combined_subscription_serves_only_members() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
-    // clash 分支已改订阅组模式（成员过滤在 provider 的 v2ray 聚合链路上），
-    // 成员过滤语义改在 v2ray 分支验证
+    // 成员过滤语义：v2ray 分支按组合成员拉取
     let resp = app
         .clone()
         .oneshot(
@@ -1861,33 +1873,6 @@ async fn combined_subscription_empty_members_returns_200() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
-    // clash 分支：不拉源，模板输出 200
-    let resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/subscribe/empty-grp?format=clash")
-                .header("host", "example.com")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "clash empty members must be 200, not 502"
-    );
-    let ct = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    assert!(
-        ct.contains("text/plain"),
-        "clash 订阅须 text/plain 供浏览器直接查看，got {ct:?}"
-    );
-
     // v2ray 分支：零成员拉取 → 空 base64 输出 200（覆盖拉源路径的空成员守卫）
     let resp = app
         .clone()
@@ -1903,6 +1888,15 @@ async fn combined_subscription_empty_members_returns_200() {
         resp.status(),
         StatusCode::OK,
         "v2ray empty members must be 200, not 502"
+    );
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.contains("text/plain"),
+        "v2ray 订阅须 text/plain 供浏览器直接查看，got {ct:?}"
     );
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
@@ -2034,7 +2028,7 @@ async fn combined_subscription_all_members_failed_returns_502() {
     let cfg = test_config(&tmp);
     let app = server::routes::build_router(pool, cfg).await;
 
-    // clash 分支已改订阅组模式（不拉源），全源失败的 502 语义在 v2ray 分支
+    // 全源失败的 502 语义：v2ray 分支拉取全部失败时返回
     let resp = app
         .clone()
         .oneshot(
@@ -2576,170 +2570,4 @@ async fn concurrent_setup_never_creates_two_admins() {
         .await
         .unwrap();
     assert_eq!(n, 1);
-}
-
-#[tokio::test]
-async fn clash_config_get_put_and_subscription_output() {
-    let tmp = fresh_tmp("clash-cfg");
-    let pool = test_pool(&tmp).await;
-    let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool.clone(), cfg).await;
-    let admin = setup_admin(&app).await;
-
-    // GET 缺省返回默认模板
-    let (s, v) = http(&app, "GET", "/admin/clash-config", None, Some(&admin)).await;
-    assert_eq!(s, StatusCode::OK);
-    let tpl = v["template"].as_str().unwrap().to_string();
-    assert!(tpl.contains("mixed-port: 7890"), "默认模板含固定头部");
-    assert!(tpl.contains("rule-providers:"), "默认模板含规则集");
-    assert!(tpl.contains("节点选择"), "默认模板引用单组名");
-    assert!(!tpl.contains("substore"), "无测试用 substore 链接");
-
-    // PUT 非法 YAML → 400
-    let (s, _) = http(
-        &app,
-        "PUT",
-        "/admin/clash-config",
-        Some(json!({"template": ": : :"}).to_string()),
-        Some(&admin),
-    )
-    .await;
-    assert_eq!(s, StatusCode::BAD_REQUEST);
-
-    // PUT 合法模板 → 保存成功，回读一致
-    let custom = "mode: rule\ndns:\n  enable: true\n  nameserver:\n    - 1.1.1.1\nrules:\n  - MATCH,🚀 节点选择\n";
-    let (s, v) = http(
-        &app,
-        "PUT",
-        "/admin/clash-config",
-        Some(json!({"template": custom}).to_string()),
-        Some(&admin),
-    )
-    .await;
-    assert_eq!(s, StatusCode::OK);
-    assert_eq!(v["template"].as_str().unwrap(), custom);
-    let (_, v) = http(&app, "GET", "/admin/clash-config", None, Some(&admin)).await;
-    assert_eq!(v["template"].as_str().unwrap(), custom, "保存后回读一致");
-
-    // 无鉴权 → 401
-    let (s, _) = http(&app, "GET", "/admin/clash-config", None, None).await;
-    assert_eq!(s, StatusCode::UNAUTHORIZED);
-
-    // 建组合 + 订阅 → clash 输出为订阅组模式（含 providers + 自定义 dns + use 引用）
-    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES ('ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A', 's1', 'single', 'now')")
-        .execute(&pool).await.unwrap();
-    let src_id: i64 = sqlx::query_scalar("SELECT id FROM sources WHERE name = 's1'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'grp'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
-        .bind(cid)
-        .bind(src_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let (s, body) = http_raw(&app, "GET", "/subscribe/grp?format=clash", None, None).await;
-    assert_eq!(s, StatusCode::OK);
-    assert!(body.contains("proxy-providers:"), "订阅组模式输出");
-    assert!(body.contains("grp:"), "provider key = 组合名");
-    assert!(
-        body.contains("url: http://example.com/subscribe/grp?format=v2ray"),
-        "provider url 拼请求 Host"
-    );
-    assert!(body.contains("use:"));
-    assert!(body.contains("- grp"));
-    assert!(body.contains("dns:"), "自定义模板段保留");
-    assert!(!body.contains("proxies:\n  - name:"), "不再输出解析节点");
-}
-
-#[tokio::test]
-async fn subscribe_clash_without_host_returns_400() {
-    let tmp = fresh_tmp("clash-nohost");
-    let pool = test_pool(&tmp).await;
-    let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool.clone(), cfg).await;
-    // 建空组合
-    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
-        .execute(&pool)
-        .await
-        .unwrap();
-    // 无 Host header 的请求
-    let resp = app
-        .clone()
-        .oneshot(
-            axum::http::Request::builder()
-                .uri("/subscribe/grp?format=clash")
-                .body(axum::body::Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn stats_requires_auth() {
-    let tmp = fresh_tmp("stats-401");
-    let pool = test_pool(&tmp).await;
-    let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg).await;
-    let (s, _) = http(&app, "GET", "/admin/stats", None, None).await;
-    assert_eq!(s, StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn stats_returns_protocol_counts() {
-    let mock = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/sub"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n\
-             ss://YWVzLTI1Ni1nY206cGFzcw@h:8389#B\n\
-             trojan://pass@1.2.3.4:443#C\n",
-        ))
-        .mount(&mock)
-        .await;
-
-    let tmp = fresh_tmp("stats");
-    let pool = test_pool(&tmp).await;
-    let url = format!("{}/sub", mock.uri());
-    // remote 源（mock）+ single 源（本地解析，指向不可达地址也无碍）
-    let res =
-        sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'remote', ?)")
-            .bind(&url)
-            .bind("mock-src")
-            .bind("now")
-            .execute(&pool)
-            .await
-            .unwrap();
-    let _src_id = res.last_insert_rowid();
-    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'single', ?)")
-        .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#SINGLE")
-        .bind("single-src")
-        .bind("now")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let cfg = test_config(&tmp);
-    let app = server::routes::build_router(pool, cfg).await;
-    let admin = setup_admin(&app).await;
-    let (s, v) = http(&app, "GET", "/admin/stats", None, Some(&admin)).await;
-    assert_eq!(s, StatusCode::OK);
-    assert_eq!(v["total_nodes"].as_u64(), Some(4));
-    assert_eq!(v["protocol_counts"]["ss"].as_u64(), Some(3));
-    assert_eq!(v["protocol_counts"]["trojan"].as_u64(), Some(1));
-    assert_eq!(v["sources"].as_u64(), Some(2));
-    assert_eq!(v["kinds"]["single"].as_u64(), Some(1));
-    assert_eq!(v["kinds"]["remote"].as_u64(), Some(1));
-    assert!(v["errors"].as_array().unwrap().is_empty());
 }

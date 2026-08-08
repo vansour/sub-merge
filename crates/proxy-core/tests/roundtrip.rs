@@ -111,16 +111,20 @@ fn real_world_vless_reality_node_survives() {
 
 #[test]
 fn full_pipeline_parse_merge_serialize() {
+    use proxy_core::formats::v2ray::serialize_v2ray;
     use proxy_core::parser::parse_subscription_text;
-    use proxy_core::serializer::{OutputFormat, serialize_nodes};
 
     let sub = "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#A\nvmess://eyJ2IjoiMiIsInBzIjoiQiIsImFkZCI6IjUuNi43LjgiLCJwb3J0IjoiNDQzIiwiaWQiOiJ1IiwiYWlkIjoiMCIsIm5ldCI6InRjcCIsInRscyI6Im5vbmUifQ==";
     let (nodes, skipped) = parse_subscription_text(sub, 1000);
     assert_eq!(nodes.len(), 2);
     assert_eq!(skipped, 0);
 
-    let clash = serialize_nodes(&nodes, OutputFormat::Clash).unwrap();
-    assert!(clash.contains("proxies:"));
-    assert!(clash.contains("name: A"));
-    assert!(clash.contains("name: B"));
+    let v2ray = serialize_v2ray(&nodes).unwrap();
+    let decoded = proxy_core::uri::decode_base64_url_string(&v2ray).unwrap();
+    assert!(decoded.contains("ss://"));
+    assert!(decoded.contains("#A"), "ss 节点名走 #fragment: {decoded}");
+    assert!(
+        decoded.contains("vmess://"),
+        "vmess 节点行存在（节点名在 JSON ps 字段，无 #fragment）: {decoded}"
+    );
 }

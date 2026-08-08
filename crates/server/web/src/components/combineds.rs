@@ -226,25 +226,19 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             let base = web_sys::window()
                 .and_then(|w| w.location().origin().ok())
                 .unwrap_or_default();
-            // 两种格式的链接按钮（预渲染，与行/成员行同模式）。
+            // 订阅链接按钮（预渲染，与行/成员行同模式）。clash 格式已移除，仅 v2ray。
             // 订阅链接在 rsx 外拼装：rsx 内嵌 format! 的 {} 会被误判为插值（见 config.rs）。
-            // move 闭包按值捕获 name，map 内逐次 clone，避免首轮即 move 掉外层 String。
-            let link_buttons: Vec<Element> = ["clash", "v2ray"]
-                .into_iter()
-                .map(|fmt| {
-                    let link = format!("{}{}", base, subscribe_path(&name, fmt));
-                    let name = name.clone();
-                    let is_copied =
-                        copied.read().as_ref() == Some(&(name.clone(), fmt.to_string()));
-                    rsx! {
-                        button {
-                            class: format!("btn btn-ghost btn-sm{}", if is_copied { " checked" } else { "" }),
-                            onclick: move |_| copy_click(name.clone(), fmt, link.clone()),
-                            "{fmt}"
-                        }
-                    }
-                })
-                .collect();
+            let link = format!("{}{}", base, subscribe_path(&name, "v2ray"));
+            let is_copied = copied.read().as_ref() == Some(&(name.clone(), "v2ray".to_string()));
+            // 按钮闭包 move 捕获克隆的 btn_name/link，避免 move 掉行内继续使用的 name
+            let btn_name = name.clone();
+            let link_buttons: Vec<Element> = vec![rsx! {
+                button {
+                    class: format!("btn btn-ghost btn-sm{}", if is_copied { " checked" } else { "" }),
+                    onclick: move |_| copy_click(btn_name.clone(), "v2ray", link.clone()),
+                    "v2ray"
+                }
+            }];
             // 协议聚合 mini 徽章：stats 是全量聚合（无法按源拆分，Task 5 Step 3 设计决策），
             // 每行同款展示全局协议分布，最多 3 种 + 省略；stats 未加载（Idle/Error）时为空。
             let proto_badges: Vec<Element> = {

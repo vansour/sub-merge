@@ -1,6 +1,5 @@
 // crates/server/src/routes/mod.rs
 pub mod auth;
-pub mod clash_config;
 pub mod combineds;
 pub mod config;
 pub mod preview;
@@ -31,7 +30,6 @@ pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::Ap
     let api = Router::new()
         .route("/subscribe/{name}", get(subscribe::subscribe_handler))
         .merge(auth::router())
-        .merge(clash_config::router())
         .merge(combineds::router())
         .merge(sources::router())
         .merge(preview::router())

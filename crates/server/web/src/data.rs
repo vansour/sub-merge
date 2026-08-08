@@ -4,9 +4,7 @@
 use crate::api::request;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-pub use submerge_web_core::dto::{
-    ClashConfigDto, CombinedDto, ConfigDto, SourceDto, StatsDto,
-};
+pub use submerge_web_core::dto::{CombinedDto, ConfigDto, SourceDto, StatsDto};
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;
@@ -23,13 +21,6 @@ pub async fn fetch_config(token: Option<&str>) -> Result<ConfigDto, String> {
     serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
 }
 
-pub async fn fetch_clash_config(token: Option<&str>) -> Result<String, String> {
-    let body = request("GET", "/admin/clash-config", None, token).await?;
-    let dto: ClashConfigDto =
-        serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))?;
-    Ok(dto.template)
-}
-
 pub async fn fetch_stats(token: Option<&str>) -> Result<StatsDto, String> {
     let body = request("GET", "/admin/stats", None, token).await?;
     serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
@@ -40,7 +31,6 @@ pub enum UnitKey {
     Sources,
     Combineds,
     Config,
-    ClashConfig,
     Stats,
 }
 
@@ -76,7 +66,6 @@ pub struct DataStore {
     pub sources: Signal<CacheState<Vec<SourceDto>>>,
     pub combineds: Signal<CacheState<Vec<CombinedDto>>>,
     pub config: Signal<CacheState<ConfigDto>>,
-    pub clash_config: Signal<CacheState<String>>,
     pub stats: Signal<CacheState<StatsDto>>,
     pub token: Signal<Option<String>>,
     in_flight: Signal<HashSet<UnitKey>>,
@@ -88,7 +77,6 @@ impl DataStore {
             sources: Signal::new(CacheState::default()),
             combineds: Signal::new(CacheState::default()),
             config: Signal::new(CacheState::default()),
-            clash_config: Signal::new(CacheState::default()),
             stats: Signal::new(CacheState::default()),
             token,
             in_flight: Signal::new(HashSet::new()),
@@ -100,7 +88,6 @@ impl DataStore {
             0 => &[UnitKey::Sources],                     // 本地订阅
             1 => &[UnitKey::Sources],                     // 远程订阅
             2 => &[UnitKey::Combineds, UnitKey::Sources], // 组合订阅
-            3 => &[UnitKey::ClashConfig],                 // Clash 配置
             _ => &[UnitKey::Config],                      // 配置
         }
     }
@@ -110,7 +97,6 @@ impl DataStore {
             UnitKey::Sources => self.sources.read().status,
             UnitKey::Combineds => self.combineds.read().status,
             UnitKey::Config => self.config.read().status,
-            UnitKey::ClashConfig => self.clash_config.read().status,
             UnitKey::Stats => self.stats.read().status,
         }
     }
@@ -186,15 +172,6 @@ impl DataStore {
                     error: String::new(),
                 });
             }
-            UnitKey::ClashConfig => {
-                let cur = store.clash_config.read().clone();
-                let mut s = store.clash_config;
-                s.set(CacheState {
-                    status: CacheStatus::Loading,
-                    data: cur.data,
-                    error: String::new(),
-                });
-            }
             UnitKey::Stats => {
                 let cur = store.stats.read().clone();
                 let mut s = store.stats;
@@ -210,7 +187,6 @@ impl DataStore {
         let stale_sources = store.sources.read().data.clone();
         let stale_combineds = store.combineds.read().data.clone();
         let stale_config = store.config.read().data.clone();
-        let stale_clash_config = store.clash_config.read().data.clone();
         let stale_stats = store.stats.read().data.clone();
         in_flight.write().insert(key);
         spawn(async move {
@@ -263,22 +239,6 @@ impl DataStore {
                         },
                     };
                     let mut s = store.config;
-                    s.set(next);
-                }
-                UnitKey::ClashConfig => {
-                    let next = match fetch_clash_config(token.as_deref()).await {
-                        Ok(d) => CacheState {
-                            status: CacheStatus::Ready,
-                            data: Some(d),
-                            error: String::new(),
-                        },
-                        Err(e) => CacheState {
-                            status: CacheStatus::Error,
-                            data: stale_clash_config,
-                            error: e,
-                        },
-                    };
-                    let mut s = store.clash_config;
                     s.set(next);
                 }
                 UnitKey::Stats => {

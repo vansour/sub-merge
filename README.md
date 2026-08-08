@@ -1,14 +1,14 @@
 # sub-merge
 
-订阅链接聚合与转换工具：聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 Clash YAML / V2Ray base64 两种格式。小圈子自用，用户名+密码鉴权。
+订阅链接聚合与转换工具：聚合多个订阅源，实时并发拉取并合并为一个订阅，统一输出 V2Ray 格式（base64 或纯 URI 行）。小圈子自用，用户名+密码鉴权。
 
 ## 功能
 
 - 聚合多个订阅源（URL），并发拉取（默认并发 8，单源超时 15s），单源失败自动跳过
 - 两种源类型：单条节点（URI 直接解析，不拉网络）与远程订阅（订阅链接，拉取后解析）；组合订阅使用命名路径输出（无鉴权）
 - 11 种协议解析：ss、ssr、socks5、http、vmess、vless、trojan、hysteria、hysteria2、tuic、wireguard
-- 2 种输出格式：Clash / V2Ray
-- 输入支持：V2Ray base64 订阅、明文 URI 列表、Clash YAML（`proxies` 段）
+- 1 种输出格式：V2Ray（base64 / 纯 URI 行；clash 支持已于 2026-08-08 移除，`format=clash` 返回 400）
+- 输入支持：V2Ray base64 订阅、明文 URI 列表
 - 管理界面（WASM）：订阅源 CRUD、转换预览、订阅链接复制、账号管理（修改密码）
 - 多个组合订阅：每组合从源中勾选成员（多对多），独立命名订阅链接（/subscribe/{name}），组合订阅管理在侧边栏「组合订阅」页
 
@@ -59,9 +59,7 @@ docker compose up -d --build
 GET /subscribe/{name}?format=clash|v2ray
 ```
 
-`{name}` 为组合订阅名（在 `/admin/combineds` 中定义）；`format` 缺省为 `clash`，无鉴权。名字不匹配返回 404；组合无成员时输出空配置（200）；全部成员源失败时返回 502 并附错误明细。
-
-`format=clash` 输出订阅组模式（proxy-providers 引用本服务的组合订阅聚合链接 `/subscribe/{name}?format=v2ray`，Clash/mihomo 客户端直拉 provider 获得节点；provider 的 scheme 取 `X-Forwarded-Proto`，缺省 http，Host 缺失返回 400）。头部字段（mixed-port/dns/rules 等）来自「Clash 配置」页的模板（`/admin/clash-config`），`proxy-providers` 与 `proxy-groups` 两段由系统自动追加。
+`{name}` 为组合订阅名（在 `/admin/combineds` 中定义）；`format` 缺省为 `v2ray`，无鉴权。名字不匹配返回 404；组合无成员时输出空配置（200）；全部成员源失败时返回 502 并附错误明细。`format` 仅支持 v2ray 别名（`v2ray`/`v2r`/`base64`）；clash 格式已于 2026-08-08 移除，`format=clash` 返回 400。
 
 ### 管理接口（`Authorization: Bearer <会话 token>`，登录后获得）
 
@@ -78,7 +76,6 @@ GET /subscribe/{name}?format=clash|v2ray
 | GET/POST | /admin/combineds | 组合订阅列表 / 创建（`source_ids` 成员源数组） |
 | PUT/DELETE | /admin/combineds/{id} | 更新（名字/成员全量替换）/ 删除 |
 | GET/PUT | /admin/config | 获取配置（用户名）/ 修改密码 |
-| GET/PUT | /admin/clash-config | 获取/更新 Clash 默认配置模板（YAML 文本，头部/dns/分流 rules 等；providers/groups 由系统自动追加，PUT 校验 YAML 合法性） |
 
 ### 注意：V2Ray 格式的节点覆盖
 

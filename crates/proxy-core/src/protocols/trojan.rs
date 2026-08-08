@@ -58,9 +58,7 @@ pub fn parse_trojan(uri: &str) -> Result<ProxyNode, ParseError> {
     }
 
     // trojan 协议默认以 TLS 承载：URI 路径仅当 security=none 显式出现时关闭 TLS。
-    // 注意与 Clash YAML 解析路径（parse_clash_yaml）的差异——后者对 trojan 无条件
-    // 强制 TLS（不含 security=none 例外），两路径的该差异是有意保留的（协议测试确认）；
-    // 且 tls=None 的关闭状态无法在任何输出格式中存续，序列化会静默回到 TLS。
+    // tls=None 的关闭状态无法在 v2ray 输出格式中存续，序列化会静默回到 TLS。
     let tls = if security == "none" {
         None
     } else {
