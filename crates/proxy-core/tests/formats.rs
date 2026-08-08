@@ -75,6 +75,26 @@ fn v2ray_subscription_uri_lines() {
 }
 
 #[test]
+fn v2ray_plain_outputs_uri_lines() {
+    let nodes = vec![
+        ss_node("A", "1.2.3.4", 8388),
+        trojan_node("B", "5.6.7.8", 443),
+    ];
+    let out = proxy_core::formats::v2ray::serialize_v2ray_plain(&nodes).unwrap();
+    assert!(out.contains("ss://"), "纯 URI 行，非 base64");
+    assert!(out.contains("trojan://"));
+    assert!(out.contains('\n'), "每行一个节点");
+}
+
+#[test]
+fn v2ray_plain_empty() {
+    assert_eq!(
+        proxy_core::formats::v2ray::serialize_v2ray_plain(&[]).unwrap(),
+        ""
+    );
+}
+
+#[test]
 fn serialize_dispatch() {
     let nodes = vec![ss_node("A", "1.2.3.4", 8388)];
     let clash = serialize_nodes(&nodes, OutputFormat::Clash).unwrap();

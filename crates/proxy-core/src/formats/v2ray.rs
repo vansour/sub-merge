@@ -3,7 +3,8 @@ use crate::error::SerializeError;
 use crate::model::ProxyNode;
 use crate::protocols::{ss, ssr, trojan, tuic, vless, vmess};
 
-pub fn serialize_v2ray(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
+/// 纯 URI 文本行输出（每行一个节点，无 base64 包裹）。空节点列表返回空串。
+pub fn serialize_v2ray_plain(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
     let mut lines = Vec::new();
     for n in nodes {
         let line = match &n.kind {
@@ -22,7 +23,11 @@ pub fn serialize_v2ray(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
         }?;
         lines.push(line);
     }
-    let joined = lines.join("\n");
+    Ok(lines.join("\n"))
+}
+
+pub fn serialize_v2ray(nodes: &[ProxyNode]) -> Result<String, SerializeError> {
+    let joined = serialize_v2ray_plain(nodes)?;
     if joined.is_empty() {
         return Ok(String::new());
     }
