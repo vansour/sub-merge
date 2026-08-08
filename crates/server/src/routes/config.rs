@@ -12,14 +12,18 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/admin/config", get(get_config).put(update_config))
 }
 
+pub(crate) const V2RAY_B64_KEY: &str = "v2ray_base64";
+
 #[derive(Serialize)]
 pub struct ConfigDto {
     pub username: String,
+    pub v2ray_base64: bool,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateConfig {
     pub change_password: Option<ChangePassword>,
+    pub v2ray_base64: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -32,7 +36,15 @@ async fn config_dto(state: &AppState) -> Result<ConfigDto, ApiError> {
     let username = crate::db::get_username(&state.pool)
         .await?
         .ok_or_else(|| ApiError::internal("no admin user"))?;
-    Ok(ConfigDto { username })
+    // 缺省开启 base64（现状兼容）
+    let v2ray_base64 = crate::db::get_setting(&state.pool, V2RAY_B64_KEY)
+        .await?
+        .as_deref()
+        != Some("0");
+    Ok(ConfigDto {
+        username,
+        v2ray_base64,
+    })
 }
 
 async fn get_config(
@@ -65,6 +77,9 @@ async fn update_config(
         crate::db::update_password(&state.pool, &username, &cp.new).await?;
         // 修改密码后全部会话（含当前）立即失效
         crate::db::delete_all_sessions(&state.pool).await?;
+    }
+    if let Some(v) = b.v2ray_base64 {
+        crate::db::set_setting(&state.pool, V2RAY_B64_KEY, if v { "1" } else { "0" }).await?;
     }
     Ok(Json(config_dto(&state).await?))
 }

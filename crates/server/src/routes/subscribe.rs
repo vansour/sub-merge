@@ -91,7 +91,17 @@ pub async fn subscribe_handler(
         )));
     }
 
-    let body = serialize_nodes(&nodes, format).map_err(|e| ApiError::internal(e.to_string()))?;
+    // v2ray 分支按设置选输出形态：base64（默认）或纯 URI 文本行
+    let body = if crate::db::get_setting(&state.pool, crate::routes::config::V2RAY_B64_KEY)
+        .await?
+        .as_deref()
+        != Some("0")
+    {
+        serialize_nodes(&nodes, format).map_err(|e| ApiError::internal(e.to_string()))?
+    } else {
+        proxy_core::formats::v2ray::serialize_v2ray_plain(&nodes)
+            .map_err(|e| ApiError::internal(e.to_string()))?
+    };
 
     // text/plain：浏览器直接渲染（不触发下载）；mihomo/clash 客户端拉取订阅
     // 时解析 body 内容，不依赖 content-type。

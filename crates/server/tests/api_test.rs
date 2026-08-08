@@ -632,7 +632,135 @@ async fn config_returns_username() {
     let (s, v) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v["username"], "admin");
+    assert_eq!(v["v2ray_base64"].as_bool(), Some(true), "默认开启 base64");
     assert!(v.get("admin_token").is_none(), "admin_token must be gone");
+}
+
+#[tokio::test]
+async fn config_v2ray_base64_setting_roundtrip() {
+    let tmp = fresh_tmp("v2b64");
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool.clone(), cfg).await;
+    let admin = setup_admin(&app).await;
+
+    // PUT 关闭 → GET 回读 false
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"v2ray_base64": false}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, v) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["v2ray_base64"].as_bool(), Some(false));
+
+    // 开回 → true
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"v2ray_base64": true}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = http(&app, "GET", "/admin/config", None, Some(&admin)).await;
+    assert_eq!(v["v2ray_base64"].as_bool(), Some(true));
+
+    // 无鉴权 401
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"v2ray_base64": false}).to_string()),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn subscribe_v2ray_plain_when_setting_off() {
+    // mock 源（ss 节点）+ 组合 → PUT v2ray_base64=false → GET /subscribe/grp?format=v2ray
+    // 断言：body 含 "ss://"（纯 URI 行），不含 base64 特征（base64 无 '://' 明文）
+    // 再开回 true → 断言 body 不含 "ss://"（base64 包裹）
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n"),
+        )
+        .mount(&mock)
+        .await;
+
+    let tmp = fresh_tmp("sub-v2b64");
+    let pool = test_pool(&tmp).await;
+
+    // 插入一个指向 mock server 的源
+    let url = format!("{}/sub", mock.uri());
+    let res = sqlx::query("INSERT INTO sources (url, name, created_at) VALUES (?, ?, ?)")
+        .bind(&url)
+        .bind("mock-source")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let src_id = res.last_insert_rowid();
+    // 建组合勾选该源
+    sqlx::query("INSERT INTO combined_subs (name, created_at) VALUES ('grp', 'now')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let cid: i64 = sqlx::query_scalar("SELECT id FROM combined_subs WHERE name = 'grp'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO combined_sources (combined_id, source_id) VALUES (?, ?)")
+        .bind(cid)
+        .bind(src_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
+
+    // 关闭 base64 → 纯 URI 文本行
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"v2ray_base64": false}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, body) = http_raw(&app, "GET", "/subscribe/grp?format=v2ray", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(body.contains("ss://"), "纯 URI 行输出，got: {body}");
+    assert!(body.contains("#A"), "节点名保留，got: {body}");
+
+    // 开回 base64 → base64 包裹（明文无 '://'）
+    let (s, _) = http(
+        &app,
+        "PUT",
+        "/admin/config",
+        Some(json!({"v2ray_base64": true}).to_string()),
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, body) = http_raw(&app, "GET", "/subscribe/grp?format=v2ray", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        !body.contains("ss://"),
+        "base64 输出不含明文 URI，got: {body}"
+    );
 }
 
 #[tokio::test]
