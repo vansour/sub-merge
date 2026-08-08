@@ -282,7 +282,7 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
                     span { class: "empty-hint", "在上方表单填写名称与订阅 URL，点击「添加」开始" }
                 }
             } else {
-                div { class: "table-wrap",
+                div { class: "table-wrap table-wrap-sources",
                     table {
                         thead {
                             tr { th { "名称" } th { "类型" } th { "URL" } th { "状态" } th { "操作" } }

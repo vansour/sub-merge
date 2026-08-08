@@ -303,6 +303,77 @@
       .form-row .btn { width: 100%; justify-content: center; }
       .sidebar-version { display: none; }
     }
+
+    /* ========== 触控目标（移动端） ========== */
+    @media (max-width: 900px) {
+      .nav-item { min-height: 44px; }
+      .btn { min-height: 44px; }
+      .btn-sm { min-height: 38px; }
+    }
+
+    /* ========== 表格（窄屏降噪 + 保持横滚） ========== */
+    @media (max-width: 900px) {
+      .table-wrap { margin: 0 -12px; padding: 0 12px; } /* 对齐 .main 边距 */
+      th, td { padding: 8px 10px; }
+      table { font-size: 12.5px; }
+      .cell-url { max-width: 180px; }
+    }
+
+    /* ========== 操作行 wrap ========== */
+    @media (max-width: 900px) {
+      .combined-row, .link-row, .token-row { flex-wrap: wrap; gap: 8px; }
+      .combined-links { margin-left: 0; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+      .link-url { flex-basis: 100%; }
+      .token-value { flex-basis: 100%; }
+    }
+
+    /* ========== 弹窗（窄屏 bottom-sheet 风格） ========== */
+    @media (max-width: 600px) {
+      .modal-overlay { padding: 0; align-items: flex-end; }
+      .modal { max-width: none; border-radius: 16px 16px 0 0; padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); }
+    }
+
+    /* ========== Toast（窄屏留边避安全区） ========== */
+    @media (max-width: 600px) {
+      .toast-stack { left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top)); }
+      .toast { max-width: none; }
+    }
+
+    /* ========== 安全区（顶栏/抽屉） ========== */
+    @media (max-width: 900px) {
+      .topbar { padding-top: calc(8px + env(safe-area-inset-top)); }
+      .sidebar { padding-top: calc(16px + env(safe-area-inset-top)); padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+      .main { padding-left: calc(12px + env(safe-area-inset-left)); padding-right: calc(12px + env(safe-area-inset-right)); }
+    }
+
+    /* ========== 标题/按钮区 ========== */
+    @media (max-width: 900px) {
+      .page-title { font-size: 18px; }
+      .page-head { gap: 10px; }
+      .page-head .btn { width: 100%; justify-content: center; }
+      .card { padding: 14px; }
+    }
+
+    /* ========== 订阅源表卡片化（窄屏，data-label 呈现字段名） ========== */
+    @media (max-width: 600px) {
+      .table-wrap-sources table, .table-wrap-sources thead, .table-wrap-sources tbody { display: block; }
+      .table-wrap-sources thead { display: none; }
+      .table-wrap-sources tr {
+        display: block; border: 1px solid var(--border); border-radius: 10px;
+        padding: 6px 12px; margin-bottom: 10px; background: var(--card);
+      }
+      .table-wrap-sources td {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        border: none; padding: 8px 0; text-align: right;
+      }
+      .table-wrap-sources td::before {
+        content: attr(data-label); font-size: 12px; font-weight: 500;
+        color: var(--text-tertiary); flex-shrink: 0;
+      }
+      .table-wrap-sources td.actions { justify-content: flex-end; }
+      .table-wrap-sources td.actions::before { display: none; }
+      .table-wrap-sources .cell-url { max-width: none; }
+    }
   </style>
 </head>
 <body>
