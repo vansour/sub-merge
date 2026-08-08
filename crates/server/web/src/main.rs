@@ -325,7 +325,7 @@ fn MainShell(token: Signal<Option<String>>) -> Element {
                 }
             }
             main { class: "main",
-                div { class: "page-wrap",
+                div { class: "page-wrap page-enter",
                     {content}
                 }
             }

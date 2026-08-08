@@ -4,8 +4,9 @@
 // 数据读 DataStore 缓存（MainShell 预载）；保存走 PUT /admin/clash-config。
 use crate::api::request;
 use crate::components::icon::Spinner;
+use crate::components::skeleton::SkeletonCard;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
-use crate::data::{DataStore, UnitKey};
+use crate::data::{CacheStatus, DataStore, UnitKey};
 use dioxus::prelude::*;
 
 #[component]
@@ -71,14 +72,18 @@ pub fn ClashConfig(token: Signal<Option<String>>) -> Element {
         if !page_error.is_empty() {
             p { class: "error-text", "{page_error}" }
         }
-        div { class: "card",
-            p { class: "subtle", "在此编辑 Clash 输出的默认配置（头部字段、dns、分流 rules 等）。proxy-providers 与 proxy-groups 由系统自动追加，无需（也不应）在此编写。" }
-            textarea {
-                class: "clash-template",
-                rows: "24",
-                placeholder: "mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n\nrules:\n  - MATCH,节点选择",
-                value: draft,
-                oninput: move |e| draft.set(e.value()),
+        if state.status == CacheStatus::Loading {
+            SkeletonCard { rows: 8 }
+        } else {
+            div { class: "card",
+                p { class: "subtle", "在此编辑 Clash 输出的默认配置（头部字段、dns、分流 rules 等）。proxy-providers 与 proxy-groups 由系统自动追加，无需（也不应）在此编写。" }
+                textarea {
+                    class: "clash-template",
+                    rows: "24",
+                    placeholder: "mixed-port: 7890\nallow-lan: false\nmode: rule\nlog-level: info\n\nrules:\n  - MATCH,节点选择",
+                    value: draft,
+                    oninput: move |e| draft.set(e.value()),
+                }
             }
         }
     }

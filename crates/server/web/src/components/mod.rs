@@ -6,6 +6,7 @@ pub mod confirm;
 pub mod icon;
 pub mod login;
 pub mod preview_modal;
+pub mod skeleton;
 pub mod sources;
 pub mod theme;
 pub mod toast;

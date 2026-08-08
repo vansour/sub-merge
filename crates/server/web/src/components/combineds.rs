@@ -6,8 +6,9 @@ use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::copy_text;
 use crate::components::icon::{Spinner, icon};
 use crate::components::preview_modal::PreviewModal;
+use crate::components::skeleton::SkeletonList;
 use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toast};
-use crate::data::{DataStore, UnitKey};
+use crate::data::{CacheStatus, DataStore, UnitKey};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use submerge_web_core::fmt::{kind_label, subscribe_path};
@@ -200,9 +201,12 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
     // 组合行（预渲染）
     let rows: Vec<Element> = combined_list
         .iter()
-        .map(|c| {
+        .enumerate()
+        .map(|(idx, c)| {
             let id = c.id;
             let name = c.name.clone();
+            // stagger 进入动画 delay：封顶 12 项，每项 40ms
+            let delay = (idx.min(11)) * 40;
             let count = c.source_ids.len();
             let source_ids = c.source_ids.clone();
             let base = web_sys::window()
@@ -232,7 +236,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             let edit_name = name.clone();
             let del_name = name.clone();
             rsx! {
-                div { class: "combined-row",
+                div { class: "combined-row row-enter", style: "animation-delay: {delay}ms",
                     div { class: "combined-info",
                         span { class: "combined-name", "{name}" }
                         span { class: "badge on", "{count} 个成员" }
@@ -274,11 +278,14 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
             p { class: "error-text", "{page_error}" }
         }
         div { class: "card",
-            if rows.is_empty() {
+            if combineds_state.status == CacheStatus::Loading {
+                SkeletonList { rows: 4 }
+            } else if rows.is_empty() {
                 div { class: "empty",
-                    {icon("combineds", 36)}
+                    div { class: "empty-icon-circle", {icon("combineds", 20)} }
                     span { class: "empty-title", "暂无组合订阅" }
                     span { class: "empty-hint", "新建组合并从订阅源中勾选成员，生成独立订阅链接" }
+                    button { class: "btn btn-primary", onclick: open_create, {icon("plus", 14)} "新建组合" }
                 }
             } else {
                 {rows.into_iter()}
@@ -307,7 +314,12 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     }
                     p { class: "subtle", "选择包含的订阅源（可多选）" }
                     if member_rows.is_empty() {
-                        div { class: "empty", span { class: "empty-hint", "暂无订阅源，请先到「订阅源」页添加" } }
+                        div { class: "empty",
+                            div { class: "empty-icon-circle", {icon("combineds", 20)} }
+                            span { class: "empty-title", "暂无订阅源" }
+                            span { class: "empty-hint", "请先到「订阅源」页添加订阅源" }
+                            button { class: "btn btn-secondary", onclick: move |_| form.set(FormState::default()), "关闭" }
+                        }
                     } else {
                         {member_rows.into_iter()}
                     }

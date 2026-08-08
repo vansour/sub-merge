@@ -273,11 +273,39 @@
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
     /* ========== 空状态 ========== */
-    .empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 20px; text-align: center; color: var(--text-secondary); }
+    .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 36px 20px; text-align: center; color: var(--text-secondary); }
+    .empty-icon-circle {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--accent-soft); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 4px;
+    }
     .page-loading { display: flex; justify-content: center; padding: 80px 0; color: var(--muted); }
-    .empty-icon { color: var(--text-tertiary); }
-    .empty-title { font-size: 14px; color: var(--text); font-weight: 500; }
-    .empty-hint { font-size: 12.5px; }
+    .empty-title { font-size: 14px; color: var(--text); font-weight: 600; }
+    .empty-hint { font-size: 12.5px; max-width: 260px; line-height: 1.5; }
+    .empty .btn { margin-top: 6px; }
+
+    /* ========== 骨架屏 ========== */
+    .skeleton-block {
+      height: 12px; border-radius: 6px;
+      background: linear-gradient(90deg, var(--skeleton-bg) 25%, color-mix(in srgb, var(--skeleton-bg) 60%, var(--text-tertiary) 12%) 37%, var(--skeleton-bg) 63%);
+      background-size: 400% 100%;
+      animation: shimmer 1.2s ease-in-out infinite;
+    }
+    @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+    .skeleton-block + .skeleton-block { margin-top: 0; }
+
+    /* ========== 列表条目进入（stagger，delay 由组件内联 style 提供） ========== */
+    @keyframes row-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .row-enter { animation: row-enter .25s cubic-bezier(.2,.8,.2,1) backwards; }
+
+    /* ========== 动效降级 ========== */
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton-block { animation: none; }
+      .row-enter, .page-enter, .modal, .toast { animation: none !important; }
+      .nav-item, .btn, .card { transition: none !important; }
+      .sidebar-version::before { animation: none; }
+    }
 
     /* ========== 登录页 ========== */
     .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }

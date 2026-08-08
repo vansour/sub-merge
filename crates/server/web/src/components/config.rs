@@ -5,8 +5,9 @@
 use crate::api::request;
 use crate::components::icon::Spinner;
 use crate::components::login::clear_token;
+use crate::components::skeleton::SkeletonCard;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
-use crate::data::{DataStore, UnitKey};
+use crate::data::{CacheStatus, DataStore, UnitKey};
 use dioxus::prelude::*;
 
 #[component]
@@ -113,7 +114,9 @@ pub fn Config(token: Signal<Option<String>>) -> Element {
         div { class: "page-head",
             h1 { class: "page-title", "配置" }
         }
-        if config_state.data.is_some() {
+        if config_state.status == CacheStatus::Loading {
+            SkeletonCard { rows: 4 }
+        } else if config_state.data.is_some() {
             div { class: "card",
                 h2 { class: "card-title", "账号" }
                 p { class: "subtle", "修改密码后所有设备（含当前会话）将被强制重新登录。" }

@@ -6,10 +6,12 @@ use crate::api::request;
 use crate::components::confirm::{ConfirmDialog, ConfirmState};
 use crate::components::icon::{Spinner, icon};
 use crate::components::preview_modal::PreviewModal;
+use crate::components::skeleton::SkeletonTable;
 use crate::components::toast::{ToastKind, push_toast, use_toast};
-use crate::data::{DataStore, SourceDto, UnitKey};
+use crate::data::{CacheStatus, DataStore, SourceDto, UnitKey};
 use dioxus::prelude::*;
 use submerge_web_core::fmt::kind_label;
+use wasm_bindgen::JsCast;
 
 // 订阅源页按 kind 参数化：本地（"single"）/ 远程（"remote"）两实例共用（导航结构 Task 4 建双入口）。
 // 列表按 kind 过滤；添加表单类型固定（body 传 kind）。
@@ -108,14 +110,17 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     // 预览/编辑闭包只捕获 Copy 信号，行数据以 owned 参数行内传入（行内 clone 免跨闭包 move）。
     let rows: Vec<Element> = source_list
         .iter()
-        .map(|s| {
+        .enumerate()
+        .map(|(idx, s)| {
             let id = s.id;
             let name = s.name.clone();
             let kind = s.kind.clone();
             let url = s.url.clone();
             let src = s.clone();
+            // stagger 进入动画 delay：封顶 12 项，每项 40ms
+            let delay = (idx.min(11)) * 40;
             rsx! {
-                tr {
+                tr { class: "row-enter", style: "animation-delay: {delay}ms",
                     td { "data-label": "名称", class: "cell-name", "{name}" }
                     td { "data-label": "类型",
                         span { class: format!("badge {}", if kind == "single" { "info" } else { "off" }),
@@ -194,11 +199,23 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
         div { class: "card",
             h2 { class: "card-title", "订阅源列表" }
             span { class: "badge on", "{source_list.len()} 个源" }
-            if rows.is_empty() {
+            if sources_state.status == CacheStatus::Loading {
+                SkeletonTable { rows: 5 }
+            } else if rows.is_empty() {
                 div { class: "empty",
-                    {icon("sources", 36)}
+                    div { class: "empty-icon-circle", {icon("sources", 20)} }
                     span { class: "empty-title", "暂无订阅源" }
                     span { class: "empty-hint", "在上方表单填写名称与订阅 URL，点击「添加」开始" }
+                    button { class: "btn btn-secondary", onclick: move |_| {
+                        // 聚焦表单输入框（空状态行动按钮直达表单）
+                        if let Some(w) = web_sys::window()
+                            && let Some(doc) = w.document()
+                            && let Ok(Some(input)) = doc.query_selector(".form-row input")
+                            && let Ok(html_input) = input.dyn_into::<web_sys::HtmlInputElement>()
+                        {
+                            let _ = html_input.focus();
+                        }
+                    }, {icon("plus", 14)} "添加订阅源" }
                 }
             } else {
                 div { class: "table-wrap table-wrap-sources",

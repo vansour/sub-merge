@@ -6,7 +6,8 @@
 // token 从 DataStore context 读（MainShell 提供），props 保持 source_id/combined/on_close 三参。
 // on_close 采用 confirm.rs 的 EventHandler<()> 模式（call(()) 调用，无需事件值）。
 use crate::api::request;
-use crate::components::icon::{Spinner, icon};
+use crate::components::icon::icon;
+use crate::components::skeleton::SkeletonTable;
 use crate::data::DataStore;
 use dioxus::prelude::*;
 use submerge_web_core::dto::PreviewResp;
@@ -154,6 +155,7 @@ pub fn PreviewModal(
     let error_text = error.read().clone();
     let close_head = on_close.clone();
     let close_foot = on_close.clone();
+    let close_empty = on_close.clone();
 
     rsx! {
         div { class: "fullscreen-modal",
@@ -163,7 +165,7 @@ pub fn PreviewModal(
             }
             div { class: "fullscreen-modal-body",
                 if loading() {
-                    div { class: "empty", Spinner { size: 28 } }
+                    SkeletonTable { rows: 6 }
                 } else if !error_text.is_empty() {
                     div { class: "empty",
                         {icon("alert", 36)}
@@ -175,9 +177,10 @@ pub fn PreviewModal(
                     if let Some(r) = data.read().as_ref() {
                         if r.nodes.is_empty() {
                             div { class: "empty",
-                                {icon("preview", 36)}
+                                div { class: "empty-icon-circle", {icon("preview", 20)} }
                                 span { class: "empty-title", "暂无节点" }
                                 span { class: "empty-hint", "该订阅源暂无可用节点" }
+                                button { class: "btn btn-secondary", onclick: move |_| close_empty.call(()), {icon("x", 14)} "关闭" }
                             }
                         } else {
                             div { class: "table-wrap",
