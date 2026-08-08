@@ -346,7 +346,12 @@
     .link-row:last-child { border-bottom: none; }
     .link-label { font-weight: 500; font-size: 13.5px; flex-shrink: 0; width: 76px; }
     .switch-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    .switch-row input { accent-color: var(--accent); }
+    /* checkbox 恢复原生形态：`.field input` 的文本框样式（width:100%/padding/border）会
+       把它撑成大框挤占文字，此处显式覆盖（同特异性，靠后生效） */
+    .switch-row input {
+      accent-color: var(--accent);
+      width: auto; padding: 0; border: none; background: none;
+    }
 
     /* ========== 组合订阅页 ========== */
     .combined-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
