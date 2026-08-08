@@ -172,7 +172,7 @@ printf 'GET /subscribe/merged?format=v2ray → 200 OK, 含 fixture-node\n'
 
 # ---- 7. 组合订阅名不匹配 404 ----
 step "7/9 错误组合名 404"
-wrong_sub="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/subscribe/not-a-sub?format=clash")"
+wrong_sub="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SERVER_PORT/subscribe/not-a-sub")"
 [[ "$wrong_sub" == "404" ]] || fail "错误组合名期望 404，实际 $wrong_sub"
 printf 'GET /subscribe/not-a-sub → 404\n'
 
