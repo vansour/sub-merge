@@ -4,7 +4,9 @@
 use crate::api::request;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-pub use submerge_web_core::dto::{ClashConfigDto, CombinedDto, ConfigDto, SourceDto};
+pub use submerge_web_core::dto::{
+    ClashConfigDto, CombinedDto, ConfigDto, SourceDto, StatsDto,
+};
 
 pub async fn fetch_sources(token: Option<&str>) -> Result<Vec<SourceDto>, String> {
     let body = request("GET", "/admin/sources", None, token).await?;
@@ -28,12 +30,18 @@ pub async fn fetch_clash_config(token: Option<&str>) -> Result<String, String> {
     Ok(dto.template)
 }
 
+pub async fn fetch_stats(token: Option<&str>) -> Result<StatsDto, String> {
+    let body = request("GET", "/admin/stats", None, token).await?;
+    serde_json::from_str(&body).map_err(|e| format!("解析失败: {}", e))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnitKey {
     Sources,
     Combineds,
     Config,
     ClashConfig,
+    Stats,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +77,7 @@ pub struct DataStore {
     pub combineds: Signal<CacheState<Vec<CombinedDto>>>,
     pub config: Signal<CacheState<ConfigDto>>,
     pub clash_config: Signal<CacheState<String>>,
+    pub stats: Signal<CacheState<StatsDto>>,
     pub token: Signal<Option<String>>,
     in_flight: Signal<HashSet<UnitKey>>,
 }
@@ -80,6 +89,7 @@ impl DataStore {
             combineds: Signal::new(CacheState::default()),
             config: Signal::new(CacheState::default()),
             clash_config: Signal::new(CacheState::default()),
+            stats: Signal::new(CacheState::default()),
             token,
             in_flight: Signal::new(HashSet::new()),
         })
@@ -101,6 +111,7 @@ impl DataStore {
             UnitKey::Combineds => self.combineds.read().status,
             UnitKey::Config => self.config.read().status,
             UnitKey::ClashConfig => self.clash_config.read().status,
+            UnitKey::Stats => self.stats.read().status,
         }
     }
 
@@ -184,13 +195,23 @@ impl DataStore {
                     error: String::new(),
                 });
             }
+            UnitKey::Stats => {
+                let cur = store.stats.read().clone();
+                let mut s = store.stats;
+                s.set(CacheState {
+                    status: CacheStatus::Loading,
+                    data: cur.data,
+                    error: String::new(),
+                });
+            }
         }
         // 失败分支保留旧数据快照：Error 状态 data 置 stale_*（不置 None），
-        // 与「刷新期间旧数据保留」spec 一致（四个单元 data 类型不同，须分别捕获）。
+        // 与「刷新期间旧数据保留」spec 一致（五个单元 data 类型不同，须分别捕获）。
         let stale_sources = store.sources.read().data.clone();
         let stale_combineds = store.combineds.read().data.clone();
         let stale_config = store.config.read().data.clone();
         let stale_clash_config = store.clash_config.read().data.clone();
+        let stale_stats = store.stats.read().data.clone();
         in_flight.write().insert(key);
         spawn(async move {
             let token = store.token.read().clone();
@@ -258,6 +279,22 @@ impl DataStore {
                         },
                     };
                     let mut s = store.clash_config;
+                    s.set(next);
+                }
+                UnitKey::Stats => {
+                    let next = match fetch_stats(token.as_deref()).await {
+                        Ok(d) => CacheState {
+                            status: CacheStatus::Ready,
+                            data: Some(d),
+                            error: String::new(),
+                        },
+                        Err(e) => CacheState {
+                            status: CacheStatus::Error,
+                            data: stale_stats,
+                            error: e,
+                        },
+                    };
+                    let mut s = store.stats;
                     s.set(next);
                 }
             }

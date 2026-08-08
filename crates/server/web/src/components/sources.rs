@@ -18,6 +18,15 @@ use wasm_bindgen::JsCast;
 #[component]
 pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     let data = use_context::<DataStore>();
+    // 页头统计徽章数据懒加载：Stats 不在 required_units（/admin/stats 含全网拉取，不阻塞切页），
+    // 本页首次渲染时触发一次；守卫信号防 effect 重入（effect 体内读信号会订阅重跑）。
+    let mut stats_loaded = use_signal(|| false);
+    use_effect(move || {
+        if !stats_loaded() {
+            stats_loaded.set(true);
+            data.refresh(UnitKey::Stats);
+        }
+    });
     let mut error = use_signal(String::new);
     let mut new_url = use_signal(String::new);
     let mut new_name = use_signal(String::new);
@@ -158,6 +167,13 @@ pub fn Sources(token: Signal<Option<String>>, kind: &'static str) -> Element {
     rsx! {
         div { class: "page-head",
             h1 { class: "page-title", "订阅源" }
+            // 页头全量统计徽章：stats 是全量聚合（两种 kind 页显示同一总数），
+            // 与「本页过滤后列表」不一致是设计决策；数据未加载（Idle/Error）时不渲染。
+            if let Some(s) = data.stats.read().data.as_ref() {
+                span { class: "stat-badge",
+                    "{s.sources} 个源 · 共 {s.total_nodes} 节点"
+                }
+            }
         }
         if !page_error.is_empty() {
             p { class: "error-text", "{page_error}" }

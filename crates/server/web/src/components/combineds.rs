@@ -11,7 +11,7 @@ use crate::components::toast::{ToastKind, push_toast, schedule_timeout, use_toas
 use crate::data::{CacheStatus, DataStore, UnitKey};
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use submerge_web_core::fmt::{kind_label, subscribe_path};
+use submerge_web_core::fmt::{kind_label, proto_class, subscribe_path};
 
 // 弹窗表单状态：None = 关闭；Some(edit_id) = 编辑既有组合（name 预填）；新建时 Some(-1)
 #[derive(Debug, Clone, Default)]
@@ -25,6 +25,15 @@ struct FormState {
 #[component]
 pub fn Combineds(token: Signal<Option<String>>) -> Element {
     let data = use_context::<DataStore>();
+    // 行内协议 mini 徽章数据懒加载：Stats 不在 required_units（/admin/stats 含全网拉取，不阻塞切页），
+    // 本页首次渲染时触发一次；守卫信号防 effect 重入（effect 体内读信号会订阅重跑）。
+    let mut stats_loaded = use_signal(|| false);
+    use_effect(move || {
+        if !stats_loaded() {
+            stats_loaded.set(true);
+            data.refresh(UnitKey::Stats);
+        }
+    });
     let mut error = use_signal(String::new);
     let mut form = use_signal(FormState::default);
     let saving = use_signal(|| false);
@@ -231,6 +240,32 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     }
                 })
                 .collect();
+            // 协议聚合 mini 徽章：stats 是全量聚合（无法按源拆分，Task 5 Step 3 设计决策），
+            // 每行同款展示全局协议分布，最多 3 种 + 省略；stats 未加载（Idle/Error）时为空。
+            let proto_badges: Vec<Element> = {
+                let mut items = Vec::new();
+                if let Some(s) = data.stats.read().data.as_ref() {
+                    let counts: Vec<(String, usize)> = s
+                        .protocol_counts
+                        .iter()
+                        .map(|(k, v)| (k.clone(), *v))
+                        .collect();
+                    for (k, v) in counts.iter().take(3) {
+                        items.push(rsx! {
+                            span { class: format!("mini-badge {}", proto_class(k)),
+                                "{k} {v}"
+                            }
+                        });
+                    }
+                    if counts.len() > 3 {
+                        // 省略计数：rsx 字符串字面量不能内嵌空 {} 占位（dioxus 0.8 解析报错），
+                        // 文本在 rsx 外拼好再插值。
+                        let more = format!("+{}", counts.len() - 3);
+                        items.push(rsx! { span { class: "mini-badge off", "{more}" } });
+                    }
+                }
+                items
+            };
             // 预览/编辑/删除闭包只捕获 Copy 信号，行数据以 owned 参数行内传入（行内 clone 免跨闭包 move）。
             let preview_name = name.clone();
             let edit_name = name.clone();
@@ -240,6 +275,7 @@ pub fn Combineds(token: Signal<Option<String>>) -> Element {
                     div { class: "combined-info",
                         span { class: "combined-name", "{name}" }
                         span { class: "badge on", "{count} 个成员" }
+                        {proto_badges.into_iter()}
                     }
                     div { class: "combined-links",
                         {link_buttons.into_iter()}

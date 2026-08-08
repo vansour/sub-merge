@@ -250,6 +250,26 @@
     .proto-4 { background: var(--proto-4-bg); color: var(--proto-4-fg); }
     .proto-5 { background: var(--proto-5-bg); color: var(--proto-5-fg); }
 
+    /* ========== 统计徽章 ========== */
+    .stat-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent); color: var(--accent-contrast);
+      font-size: 12.5px; font-weight: 500; padding: 4px 12px; border-radius: 999px;
+      margin-left: 10px; white-space: nowrap;
+    }
+    .mini-badge {
+      display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px;
+      font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    }
+    .mini-badge.off { background: var(--bg-soft); color: var(--text-secondary); }
+    /* 协议色：沿用 .proto-N 的 bg/fg 变量 */
+    .mini-badge.proto-0 { background: var(--proto-0-bg); color: var(--proto-0-fg); }
+    .mini-badge.proto-1 { background: var(--proto-1-bg); color: var(--proto-1-fg); }
+    .mini-badge.proto-2 { background: var(--proto-2-bg); color: var(--proto-2-fg); }
+    .mini-badge.proto-3 { background: var(--proto-3-bg); color: var(--proto-3-fg); }
+    .mini-badge.proto-4 { background: var(--proto-4-bg); color: var(--proto-4-fg); }
+    .mini-badge.proto-5 { background: var(--proto-5-bg); color: var(--proto-5-fg); }
+
     /* ========== Toast ========== */
     .toast-stack { position: fixed; top: 16px; right: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
     .toast {
@@ -331,7 +351,7 @@
     /* ========== 组合订阅页 ========== */
     .combined-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .combined-row:last-child { border-bottom: none; }
-    .combined-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .combined-info { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
     .combined-name { font-family: var(--font-mono); font-size: 13.5px; font-weight: 500; white-space: nowrap; }
     .combined-links { display: flex; gap: 6px; margin-left: auto; }
     .member-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13.5px; cursor: pointer; }
