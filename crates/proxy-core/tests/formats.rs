@@ -118,6 +118,13 @@ fn clash_subscription_default_template() {
     let prov = v["proxy-providers"].as_mapping().unwrap();
     assert_eq!(prov.len(), 1);
     assert!(prov.contains_key(serde_yaml_ng::Value::String("home".into())));
+    let groups = v["proxy-groups"].as_sequence().unwrap();
+    assert_eq!(groups.len(), 1, "恰好一个分组");
+    assert_eq!(
+        groups[0]["name"].as_str().unwrap(),
+        "节点选择",
+        "分组名无颜文字"
+    );
 }
 
 #[test]

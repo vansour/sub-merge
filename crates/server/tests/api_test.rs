@@ -2438,6 +2438,9 @@ async fn clash_config_get_put_and_subscription_output() {
     assert_eq!(s, StatusCode::OK);
     let tpl = v["template"].as_str().unwrap().to_string();
     assert!(tpl.contains("mixed-port: 7890"), "默认模板含固定头部");
+    assert!(tpl.contains("rule-providers:"), "默认模板含规则集");
+    assert!(tpl.contains("节点选择"), "默认模板引用单组名");
+    assert!(!tpl.contains("substore"), "无测试用 substore 链接");
 
     // PUT 非法 YAML → 400
     let (s, _) = http(
