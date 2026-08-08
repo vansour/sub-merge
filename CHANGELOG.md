@@ -87,6 +87,7 @@
 - (ci) Git-cliff changelog 配置（conventional commits 分组 + commit 链接） ([30db750](https://github.com/vansour/sub-merge/commit/30db750cd3d36597be007f26814163275c2c3cc3))
 - 全面审查——check 追加 cargo audit + 新增 smoke 端到端 job + 修复 dx --debug-symbols false ([edd2b7b](https://github.com/vansour/sub-merge/commit/edd2b7baebcbee83e661baa69ab3668c2727a0bf))
 - (release) Tag 全自动发布——ghcr 镜像 + git-cliff changelog + 自动创建 Release ([227112b](https://github.com/vansour/sub-merge/commit/227112bfc74825660b0c587c9963511ac345d945))
+- 升级全部 workflow actions 到最新版（checkout@v7/upload@v7/download@v8/gh-release@v3/docker actions v4-v7） ([9bd33d4](https://github.com/vansour/sub-merge/commit/9bd33d40c11a06af71f8d9e9bfd1765178e979be))
 
 ### Documentation
 
@@ -134,6 +135,7 @@
 - 更新 CHANGELOG.md（v0.0.1） ([2603d87](https://github.com/vansour/sub-merge/commit/2603d8734161c0877b16a17042ed1f370e8d739c))
 - 更新 CHANGELOG.md（v0.0.1） ([28d4a29](https://github.com/vansour/sub-merge/commit/28d4a29aa161b1e83f047925cc66f42dd966adbf))
 - 添加 MIT LICENSE + README License 节（公开仓库发布就绪） ([0b32373](https://github.com/vansour/sub-merge/commit/0b32373d1ce0ab2ae69e6943ebc3bf9fb6cc26e7))
+- 更新 CHANGELOG.md（v0.0.1） ([ce2ef6c](https://github.com/vansour/sub-merge/commit/ce2ef6cd2f27df85dcfd912f787d2a62a41192e0))
 
 ### Features
 
