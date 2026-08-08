@@ -93,8 +93,10 @@ pub async fn subscribe_handler(
 
     let body = serialize_nodes(&nodes, format).map_err(|e| ApiError::internal(e.to_string()))?;
 
+    // text/plain：浏览器直接渲染（不触发下载）；mihomo/clash 客户端拉取订阅
+    // 时解析 body 内容，不依赖 content-type。
     let content_type = match format {
-        OutputFormat::Clash => "application/x-yaml",
+        OutputFormat::Clash => "text/plain; charset=utf-8",
         OutputFormat::V2ray => "text/plain; charset=utf-8",
     };
 

@@ -1734,6 +1734,15 @@ async fn combined_subscription_empty_members_returns_200() {
         StatusCode::OK,
         "clash empty members must be 200, not 502"
     );
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        ct.contains("text/plain"),
+        "clash 订阅须 text/plain 供浏览器直接查看，got {ct:?}"
+    );
 
     // v2ray 分支：零成员拉取 → 空 base64 输出 200（覆盖拉源路径的空成员守卫）
     let resp = app
