@@ -364,6 +364,28 @@ def scenario_preview(ws):
     ev(ws, "Array.from(document.querySelectorAll('.fullscreen-modal .btn')).find(b=>b.textContent.includes('关闭')).click()")
     assert_true(wait_until(ws, "!document.querySelector('.fullscreen-modal')"), "组合预览关闭后弹窗消失")
 
+def scenario_preview_failure(ws):
+    """预览弹窗失败路径：preview 请求被拦截 → 弹窗显示加载失败 + 重试 → 解除拦截点重试恢复。
+
+    用 CDP 请求拦截（Network.setBlockedURLs）让 /admin/preview 请求失败
+    （同已删除 first_load_failure 的手法，无需杀 server）；拦截须在 login()
+    触发导航前生效（Network.enable 幂等，login() 内部再启 Page/Runtime 无冲突）。"""
+    cmd(ws, "Network.enable")
+    cmd(ws, "Network.setBlockedURLs", {"urls": ["*admin/preview*"]})
+    seed_sources(ws, 1)
+    login(ws)
+    assert_true(wait_until(ws, "Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.trim()==='本地订阅').classList.contains('active')"), "本地订阅就绪")
+    # 行内预览 → 全屏弹窗失败态（empty-title「加载失败」+ 重试按钮，见 preview_modal.rs 失败分支）
+    ev(ws, "Array.from(document.querySelectorAll('.table-wrap-sources .cell-actions .btn')).find(b=>b.textContent.includes('预览')).click()")
+    assert_true(wait_until(ws, "!!document.querySelector('.fullscreen-modal')"), "全屏预览弹窗出现")
+    assert_true(wait_until(ws, "!!document.querySelector('.fullscreen-modal') && document.querySelector('.fullscreen-modal').innerText.includes('加载失败')", timeout=10), "弹窗显示加载失败态")
+    # 解除拦截 → 点重试 → 节点渲染
+    cmd(ws, "Network.setBlockedURLs", {"urls": []})
+    ev(ws, "Array.from(document.querySelectorAll('.fullscreen-modal .btn')).find(b=>b.textContent.includes('重试')).click()")
+    assert_true(wait_until(ws, "document.querySelectorAll('.fullscreen-modal .table-wrap tbody tr').length > 0", timeout=10), "重试后节点渲染")
+    ev(ws, "Array.from(document.querySelectorAll('.fullscreen-modal .btn')).find(b=>b.textContent.includes('关闭')).click()")
+    assert_true(wait_until(ws, "!document.querySelector('.fullscreen-modal')"), "关闭后弹窗消失")
+
 def scenario_responsive(ws):
     """响应式适配：视口矩阵无水平溢出 + 移动端抽屉可达性（导航全可达）+ 跨断点 resize 跟随。
 
@@ -409,6 +431,7 @@ def main():
     ws = connect()
     scenarios = {"nav_preload": scenario_nav_preload, "sources_crud": scenario_sources_crud,
                  "combineds": scenario_combineds, "preview": scenario_preview,
+                 "preview_failure": scenario_preview_failure,
                  "config_password": scenario_config_password,
                  "clash_config": scenario_clash_config,
                  "responsive": scenario_responsive}

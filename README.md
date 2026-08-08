@@ -74,7 +74,7 @@ GET /subscribe/{name}?format=clash|v2ray
 | GET/POST | /admin/sources | 列表 / 添加订阅源（`kind`: `single` 单条节点 \| `remote` 远程订阅，缺省 remote） |
 | PUT/DELETE | /admin/sources/{id} | 更新（url/name/kind）/ 删除 |
 | POST | /admin/sources/{id}/refresh | 手动刷新单源 |
-| GET | /admin/preview | 转换结果预览（节点列表 + 源错误；`?combined=<name>` 按组合成员过滤） |
+| GET | /admin/preview | 转换结果预览（节点列表 + 源错误；`?source_id=<id>` 单源预览 \| `?combined=<name>` 按组合成员 \| `?kind=single\|remote` 按类型过滤；三者互斥） |
 | GET/POST | /admin/combineds | 组合订阅列表 / 创建（`source_ids` 成员源数组） |
 | PUT/DELETE | /admin/combineds/{id} | 更新（名字/成员全量替换）/ 删除 |
 | GET/PUT | /admin/config | 获取配置（用户名）/ 修改密码 |

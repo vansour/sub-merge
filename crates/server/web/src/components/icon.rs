@@ -102,12 +102,6 @@ pub fn icon(name: &'static str, size: u32) -> Element {
                 path { d: "M12 5v14" }
             }
         },
-        // check：对勾
-        "check" => rsx! {
-            svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
-                path { d: "M20 6 9 17l-5-5" }
-            }
-        },
         // x：关闭
         "x" => rsx! {
             svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",

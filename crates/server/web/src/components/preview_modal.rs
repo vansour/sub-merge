@@ -109,7 +109,7 @@ pub fn PreviewModal(
         }
     });
 
-    // 行预渲染（节点表），沿用原 preview_section.rs 模式。
+    // 行预渲染（节点表），沿用本组件既有模式。
     let rows: Vec<Element> = data
         .read()
         .as_ref()

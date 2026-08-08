@@ -1061,6 +1061,15 @@ async fn legacy_db_without_kind_column_is_migrated() {
         .await
         .unwrap();
     assert_eq!(kind, "remote");
+    // enabled 列必须已被 DROP COLUMN 移除
+    let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('sources')")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(
+        !cols.contains(&"enabled".to_string()),
+        "enabled 列已被迁移移除"
+    );
 }
 
 #[tokio::test]
@@ -2325,6 +2334,16 @@ async fn preview_by_source_id_returns_that_source_nodes() {
         &app,
         "GET",
         "/admin/preview?source_id=1&combined=grp",
+        None,
+        Some(&admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // source_id 与 kind 同样互斥 → 400
+    let (s, _) = http(
+        &app,
+        "GET",
+        "/admin/preview?source_id=1&kind=single",
         None,
         Some(&admin),
     )
