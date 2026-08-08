@@ -2685,3 +2685,61 @@ async fn subscribe_clash_without_host_returns_400() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn stats_requires_auth() {
+    let tmp = fresh_tmp("stats-401");
+    let pool = test_pool(&tmp).await;
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+    let (s, _) = http(&app, "GET", "/admin/stats", None, None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn stats_returns_protocol_counts() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/sub"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "ss://YWVzLTI1Ni1nY206cGFzcw@h:8388#A\n\
+             ss://YWVzLTI1Ni1nY206cGFzcw@h:8389#B\n\
+             trojan://pass@1.2.3.4:443#C\n",
+        ))
+        .mount(&mock)
+        .await;
+
+    let tmp = fresh_tmp("stats");
+    let pool = test_pool(&tmp).await;
+    let url = format!("{}/sub", mock.uri());
+    // remote 源（mock）+ single 源（本地解析，指向不可达地址也无碍）
+    let res =
+        sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'remote', ?)")
+            .bind(&url)
+            .bind("mock-src")
+            .bind("now")
+            .execute(&pool)
+            .await
+            .unwrap();
+    let _src_id = res.last_insert_rowid();
+    sqlx::query("INSERT INTO sources (url, name, kind, created_at) VALUES (?, ?, 'single', ?)")
+        .bind("ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:1#SINGLE")
+        .bind("single-src")
+        .bind("now")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let cfg = test_config(&tmp);
+    let app = server::routes::build_router(pool, cfg).await;
+    let admin = setup_admin(&app).await;
+    let (s, v) = http(&app, "GET", "/admin/stats", None, Some(&admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["total_nodes"].as_u64(), Some(4));
+    assert_eq!(v["protocol_counts"]["ss"].as_u64(), Some(3));
+    assert_eq!(v["protocol_counts"]["trojan"].as_u64(), Some(1));
+    assert_eq!(v["sources"].as_u64(), Some(2));
+    assert_eq!(v["kinds"]["single"].as_u64(), Some(1));
+    assert_eq!(v["kinds"]["remote"].as_u64(), Some(1));
+    assert!(v["errors"].as_array().unwrap().is_empty());
+}

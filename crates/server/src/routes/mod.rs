@@ -5,6 +5,7 @@ pub mod combineds;
 pub mod config;
 pub mod preview;
 pub mod sources;
+pub mod stats;
 pub mod subscribe;
 
 use crate::state::AppState;
@@ -34,6 +35,7 @@ pub async fn build_router(pool: sqlx::sqlite::SqlitePool, cfg: crate::config::Ap
         .merge(combineds::router())
         .merge(sources::router())
         .merge(preview::router())
+        .merge(stats::router())
         .merge(config::router());
 
     // 根路径不注册显式路由：由 fallback 返回 SPA index.html（浏览器直接打开 / 即见管理界面）。
